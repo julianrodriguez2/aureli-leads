@@ -6,5 +6,5 @@ public sealed class JwtOptions
     public string Audience { get; set; } = "aureli-leads";
     public string Key { get; set; } = "CHANGE_ME";
     public int ExpiryMinutes { get; set; } = 60;
-    public string CookieName { get; set; } = "aureli_auth";
+    public string CookieName { get; set; } = "access_token";
 }

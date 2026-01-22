@@ -25,7 +25,7 @@ services:
       Jwt__Audience: aureli-leads
       Jwt__Key: change_me_in_prod
       Jwt__ExpiryMinutes: "60"
-      Jwt__CookieName: aureli_auth
+      Jwt__CookieName: access_token
     depends_on:
       - postgres
     ports:
