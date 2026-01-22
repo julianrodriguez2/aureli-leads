@@ -1,13 +1,35 @@
+using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.DTOs;
+using Microsoft.EntityFrameworkCore;
 
 namespace AureliLeads.Api.Services;
 
 public sealed class LeadService : ILeadService
 {
+    private readonly AureliLeadsDbContext _dbContext;
+
+    public LeadService(AureliLeadsDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
     public Task<IReadOnlyList<LeadListDto>> GetLeadsAsync(CancellationToken cancellationToken)
     {
-        // TODO: implement lead list retrieval.
-        throw new NotImplementedException("TODO");
+        return _dbContext.Leads
+            .AsNoTracking()
+            .OrderByDescending(lead => lead.CreatedAt)
+            .Select(lead => new LeadListDto
+            {
+                Id = lead.Id,
+                FirstName = lead.FirstName,
+                LastName = lead.LastName,
+                Email = lead.Email,
+                Company = lead.Company,
+                Status = lead.Status,
+                Score = lead.Score,
+                CreatedAt = lead.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
     }
 
     public Task<LeadDetailDto?> GetLeadAsync(Guid id, CancellationToken cancellationToken)

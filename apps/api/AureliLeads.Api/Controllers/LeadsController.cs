@@ -18,10 +18,10 @@ public sealed class LeadsController : ControllerBase
     }
 
     [HttpGet]
-    public ActionResult<IReadOnlyList<LeadListDto>> GetLeads()
+    public async Task<ActionResult<IReadOnlyList<LeadListDto>>> GetLeads(CancellationToken cancellationToken)
     {
-        // TODO: implement lead list retrieval.
-        return StatusCode(StatusCodes.Status501NotImplemented);
+        var leads = await _leadService.GetLeadsAsync(cancellationToken);
+        return Ok(leads);
     }
 
     [HttpGet("{id:guid}")]

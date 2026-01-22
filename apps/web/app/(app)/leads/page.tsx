@@ -1,8 +1,17 @@
+import { cookies } from "next/headers";
 import { LeadTable } from "@/components/leads/LeadTable";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiFetch } from "@/lib/api";
+import { AUTH_COOKIE_NAME } from "@/lib/auth";
+import { LeadListDto } from "@/lib/types";
 
-export default function LeadsPage() {
+export default async function LeadsPage() {
+  const token = cookies().get(AUTH_COOKIE_NAME)?.value;
+  const leads = await apiFetch<LeadListDto[]>("/api/leads", {
+    headers: token ? { Cookie: `${AUTH_COOKIE_NAME}=${token}` } : undefined
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -17,7 +26,7 @@ export default function LeadsPage() {
           <CardTitle>Active leads</CardTitle>
         </CardHeader>
         <CardContent>
-          <LeadTable />
+          <LeadTable leads={leads} />
         </CardContent>
       </Card>
     </div>
