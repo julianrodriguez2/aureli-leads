@@ -9,6 +9,28 @@ export type LeadListDto = {
   createdAt: string;
 };
 
+export type LeadListItemDto = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+  source: string;
+  status: string;
+  score: number;
+  createdAt: string;
+  lastActivityAt?: string | null;
+  automationStatus: string;
+};
+
+export type PagedResponse<T> = {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
 export type LeadActivityDto = {
   id: string;
   leadId: string;
