@@ -109,10 +109,12 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+await ApplyMigrationsAsync(app.Services);
 await SeedAdminAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
+    await SeedSampleLeadsAsync(app.Services);
     app.UseSwagger();
     app.UseSwaggerUI();
 }
@@ -124,11 +126,17 @@ app.UseAuthorization();
 app.MapControllers();
 app.Run();
 
-static async Task SeedAdminAsync(IServiceProvider services)
+static async Task ApplyMigrationsAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
     await dbContext.Database.MigrateAsync();
+}
+
+static async Task SeedAdminAsync(IServiceProvider services)
+{
+    await using var scope = services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
 
     if (await dbContext.Users.AnyAsync())
     {
@@ -148,5 +156,77 @@ static async Task SeedAdminAsync(IServiceProvider services)
     adminUser.PasswordHash = hasher.HashPassword(adminUser, "Admin123!");
 
     dbContext.Users.Add(adminUser);
+    await dbContext.SaveChangesAsync();
+}
+
+static async Task SeedSampleLeadsAsync(IServiceProvider services)
+{
+    await using var scope = services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
+
+    if (await dbContext.Leads.AnyAsync())
+    {
+        return;
+    }
+
+    var random = new Random(42);
+    var statuses = new[] { "New", "Contacted", "Qualified", "Disqualified" };
+    var sources = new[] { "web", "google_ads", "referral", "n8n" };
+    var firstNames = new[] { "Ava", "Mateo", "Priya", "Liam", "Noah", "Sophia", "Maya", "Ethan", "Zoe", "Lucas" };
+    var lastNames = new[] { "Chen", "Silva", "Nair", "Johnson", "Garcia", "Patel", "Kim", "Singh", "Brown", "Nguyen" };
+    var messages = new[]
+    {
+        "Interested in a demo next week.",
+        "Looking to compare pricing tiers.",
+        "Asked about onboarding timeline.",
+        "Needs approval from leadership.",
+        "Wants to automate follow-ups."
+    };
+
+    var leads = new List<Lead>();
+    var activities = new List<LeadActivity>();
+    var now = DateTime.UtcNow;
+
+    for (var i = 0; i < 32; i++)
+    {
+        var firstName = firstNames[i % firstNames.Length];
+        var lastName = lastNames[(i + 3) % lastNames.Length];
+        var createdAt = now.AddDays(-random.Next(0, 30)).AddMinutes(-random.Next(0, 1440));
+        var updatedAt = createdAt.AddHours(random.Next(1, 72));
+        if (updatedAt > now)
+        {
+            updatedAt = now;
+        }
+
+        var lead = new Lead
+        {
+            Id = Guid.NewGuid(),
+            FirstName = firstName,
+            LastName = lastName,
+            Email = $"{firstName.ToLowerInvariant()}.{lastName.ToLowerInvariant()}@example.com",
+            Phone = $"+1-555-01{random.Next(10, 99)}",
+            Company = $"{lastName} & Co",
+            Source = sources[random.Next(sources.Length)],
+            Status = statuses[random.Next(statuses.Length)],
+            Score = random.Next(0, 101),
+            Message = messages[random.Next(messages.Length)],
+            CreatedAt = createdAt,
+            UpdatedAt = updatedAt
+        };
+
+        leads.Add(lead);
+
+        activities.Add(new LeadActivity
+        {
+            Id = Guid.NewGuid(),
+            LeadId = lead.Id,
+            Type = "Created",
+            Notes = "Seeded lead",
+            CreatedAt = createdAt
+        });
+    }
+
+    dbContext.Leads.AddRange(leads);
+    dbContext.LeadActivities.AddRange(activities);
     await dbContext.SaveChangesAsync();
 }

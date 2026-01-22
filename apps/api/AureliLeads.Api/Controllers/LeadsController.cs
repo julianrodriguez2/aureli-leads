@@ -18,9 +18,28 @@ public sealed class LeadsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<LeadListDto>>> GetLeads(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedResponse<LeadListItemDto>>> GetLeads(
+        [FromQuery] string? q,
+        [FromQuery] string? status,
+        [FromQuery] string? source,
+        [FromQuery] int? minScore,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? sort = "createdAt_desc",
+        CancellationToken cancellationToken = default)
     {
-        var leads = await _leadService.GetLeadsAsync(cancellationToken);
+        var query = new LeadListQuery
+        {
+            Q = q,
+            Status = status,
+            Source = source,
+            MinScore = minScore,
+            Page = page,
+            PageSize = pageSize,
+            Sort = sort ?? "createdAt_desc"
+        };
+
+        var leads = await _leadService.GetLeadsAsync(query, cancellationToken);
         return Ok(leads);
     }
 

@@ -4,7 +4,7 @@ namespace AureliLeads.Api.Services;
 
 public interface ILeadService
 {
-    Task<IReadOnlyList<LeadListDto>> GetLeadsAsync(CancellationToken cancellationToken);
+    Task<PagedResponse<LeadListItemDto>> GetLeadsAsync(LeadListQuery query, CancellationToken cancellationToken);
     Task<LeadDetailDto?> GetLeadAsync(Guid id, CancellationToken cancellationToken);
     Task<LeadDetailDto> CreateLeadAsync(CreateLeadRequest request, CancellationToken cancellationToken);
     Task<LeadDetailDto> UpdateLeadAsync(Guid id, UpdateLeadRequest request, CancellationToken cancellationToken);

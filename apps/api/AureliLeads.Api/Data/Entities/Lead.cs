@@ -8,8 +8,10 @@ public sealed class Lead
     public string Email { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? Company { get; set; }
-    public string Status { get; set; } = "new";
+    public string Source { get; set; } = "web";
+    public string Status { get; set; } = "New";
     public int Score { get; set; }
+    public string? Message { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
