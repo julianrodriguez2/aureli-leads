@@ -14,7 +14,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get("aureli_auth")?.value;
+  const token = request.cookies.get("access_token")?.value;
   if (!token) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

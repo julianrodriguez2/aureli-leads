@@ -68,6 +68,8 @@ export type UserDto = {
   lastLoginAt?: string | null;
 };
 
+export type MeDto = UserDto;
+
 export type AuthResponseDto = {
   user: UserDto;
   tokenType: string;
