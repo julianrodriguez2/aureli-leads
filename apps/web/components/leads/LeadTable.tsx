@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LeadListItemDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -64,8 +65,8 @@ export function LeadTable({ leads }: LeadTableProps) {
               <TableCell>{formatDate(lead.createdAt)}</TableCell>
               <TableCell>{formatDate(lead.lastActivityAt ?? lead.createdAt)}</TableCell>
               <TableCell className="text-right">
-                <Button variant="ghost" size="sm" disabled>
-                  View
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href={`/leads/${lead.id}`}>View</Link>
                 </Button>
               </TableCell>
             </TableRow>

@@ -39,6 +39,18 @@ export type LeadActivityDto = {
   createdAt: string;
 };
 
+export type ScoreReasonDto = {
+  rule: string;
+  delta: number;
+};
+
+export type ActivityDto = {
+  id: string;
+  type: string;
+  data?: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type AutomationEventDetailDto = {
   id: string;
   leadId: string;
@@ -56,13 +68,15 @@ export type LeadDetailDto = {
   lastName: string;
   email: string;
   phone?: string | null;
-  company?: string | null;
+  source: string;
   status: string;
   score: number;
+  scoreReasons: ScoreReasonDto[];
+  message?: string | null;
+  tags: string[];
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
-  activities: LeadActivityDto[];
-  automationEvents: AutomationEventDetailDto[];
 };
 
 export type AutomationEventListDto = {
