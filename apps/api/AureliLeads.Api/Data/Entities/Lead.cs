@@ -12,6 +12,9 @@ public sealed class Lead
     public string Status { get; set; } = "New";
     public int Score { get; set; }
     public string? Message { get; set; }
+    public string? TagsJson { get; set; }
+    public string? MetadataJson { get; set; }
+    public string? ScoreReasonsJson { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
