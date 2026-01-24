@@ -1,9 +1,11 @@
 using AureliLeads.Api.Data.DbContext;
+using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
 using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using System.Text.Json;
 
 namespace AureliLeads.Api.Controllers;
@@ -15,6 +17,7 @@ public sealed class LeadsController : ControllerBase
 {
     private readonly AureliLeadsDbContext _dbContext;
     private readonly ILeadService _leadService;
+    private static readonly string[] AllowedStatuses = { "New", "Contacted", "Qualified", "Disqualified" };
 
     public LeadsController(AureliLeadsDbContext dbContext, ILeadService leadService)
     {
@@ -60,26 +63,7 @@ public sealed class LeadsController : ControllerBase
             return NotFound();
         }
 
-        var tags = TryDeserialize<string[]>(lead.TagsJson) ?? Array.Empty<string>();
-        var scoreReasons = TryDeserialize<List<ScoreReasonDto>>(lead.ScoreReasonsJson) ?? new List<ScoreReasonDto>();
-
-        return Ok(new LeadDetailDto
-        {
-            Id = lead.Id,
-            FirstName = lead.FirstName,
-            LastName = lead.LastName,
-            Email = lead.Email,
-            Phone = lead.Phone,
-            Source = lead.Source,
-            Status = lead.Status,
-            Score = lead.Score,
-            ScoreReasons = scoreReasons,
-            Message = lead.Message,
-            Tags = tags,
-            Metadata = ParseJsonElement(lead.MetadataJson),
-            CreatedAt = lead.CreatedAt,
-            UpdatedAt = lead.UpdatedAt
-        });
+        return Ok(MapLeadDetail(lead));
     }
 
     [HttpGet("{id:guid}/activities")]
@@ -111,7 +95,118 @@ public sealed class LeadsController : ControllerBase
         return Ok(results);
     }
 
-    // TODO: add status update endpoint.
+    [HttpPatch("{id:guid}/status")]
+    public async Task<ActionResult<LeadDetailDto>> UpdateLeadStatus(
+        Guid id,
+        [FromBody] UpdateLeadStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!CanUpdateStatus(User))
+        {
+            return Forbid();
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Status))
+        {
+            return BadRequest();
+        }
+
+        var normalizedStatus = NormalizeStatus(request.Status);
+        if (normalizedStatus is null)
+        {
+            return BadRequest();
+        }
+
+        var lead = await _dbContext.Leads
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (lead is null)
+        {
+            return NotFound();
+        }
+
+        if (string.Equals(lead.Status, normalizedStatus, StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(MapLeadDetail(lead));
+        }
+
+        var now = DateTime.UtcNow;
+        var previousStatus = lead.Status;
+        lead.Status = normalizedStatus;
+        lead.UpdatedAt = now;
+
+        var activities = new List<LeadActivity>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "StatusChanged",
+                Notes = "Status updated",
+                DataJson = JsonSerializer.Serialize(new { from = previousStatus, to = normalizedStatus }),
+                CreatedAt = now
+            }
+        };
+
+        var targetUrl = await _dbContext.Settings
+            .AsNoTracking()
+            .Where(setting => setting.Key == "WebhookTargetUrl")
+            .Select(setting => setting.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(targetUrl))
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                eventType = "StatusChanged",
+                leadId = lead.Id,
+                oldStatus = previousStatus,
+                newStatus = normalizedStatus,
+                timestamp = now,
+                lead = new
+                {
+                    id = lead.Id,
+                    firstName = lead.FirstName,
+                    lastName = lead.LastName,
+                    email = lead.Email,
+                    phone = lead.Phone,
+                    status = normalizedStatus,
+                    source = lead.Source,
+                    score = lead.Score
+                }
+            });
+
+            _dbContext.AutomationEvents.Add(new AutomationEvent
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                EventType = "StatusChanged",
+                Payload = payload,
+                TargetUrl = targetUrl,
+                Status = "Pending",
+                ScheduledAt = now,
+                CreatedAt = now
+            });
+        }
+        else
+        {
+            activities.Add(new LeadActivity
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "WebhookSkipped",
+                Notes = "Webhook target missing",
+                DataJson = JsonSerializer.Serialize(new { reason = "Missing WebhookTargetUrl setting." }),
+                CreatedAt = now
+            });
+        }
+
+        _dbContext.LeadActivities.AddRange(activities);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(MapLeadDetail(lead));
+    }
+
     // TODO: add rescore endpoint.
 
     [HttpPost]
@@ -136,6 +231,55 @@ public sealed class LeadsController : ControllerBase
         {
             return default;
         }
+    }
+
+    private static LeadDetailDto MapLeadDetail(Lead lead)
+    {
+        var tags = TryDeserialize<string[]>(lead.TagsJson) ?? Array.Empty<string>();
+        var scoreReasons = TryDeserialize<List<ScoreReasonDto>>(lead.ScoreReasonsJson) ?? new List<ScoreReasonDto>();
+
+        return new LeadDetailDto
+        {
+            Id = lead.Id,
+            FirstName = lead.FirstName,
+            LastName = lead.LastName,
+            Email = lead.Email,
+            Phone = lead.Phone,
+            Source = lead.Source,
+            Status = lead.Status,
+            Score = lead.Score,
+            ScoreReasons = scoreReasons,
+            Message = lead.Message,
+            Tags = tags,
+            Metadata = ParseJsonElement(lead.MetadataJson),
+            CreatedAt = lead.CreatedAt,
+            UpdatedAt = lead.UpdatedAt
+        };
+    }
+
+    private static bool CanUpdateStatus(ClaimsPrincipal user)
+    {
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return false;
+        }
+
+        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
+            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeStatus(string status)
+    {
+        foreach (var allowed in AllowedStatuses)
+        {
+            if (string.Equals(allowed, status, StringComparison.OrdinalIgnoreCase))
+            {
+                return allowed;
+            }
+        }
+
+        return null;
     }
 
     private static JsonElement? ParseJsonElement(string? json)

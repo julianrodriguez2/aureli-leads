@@ -59,6 +59,7 @@ builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IScoringService, ScoringService>();
 builder.Services.AddScoped<IAutomationService, AutomationService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddHttpClient();
 
 builder.Services.AddCors(options =>
 {
