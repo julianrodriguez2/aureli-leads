@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError, apiFetch } from "@/lib/api";
-import { updateLeadStatus } from "@/lib/auth";
+import { rescoreLead, updateLeadStatus } from "@/lib/auth";
 import type { ActivityDto, LeadDetailDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,6 +63,7 @@ export function LeadDetailClient({
   const [activityError, setActivityError] = useState<string | null>(initialActivityError ?? null);
   const [selectedStatus, setSelectedStatus] = useState(initialLead.status);
   const [isSaving, setIsSaving] = useState(false);
+  const [isScoring, setIsScoring] = useState(false);
 
   const metadataJson = lead.metadata ? JSON.stringify(lead.metadata, null, 2) : null;
   const isStatusUnchanged = selectedStatus === lead.status;
@@ -106,6 +107,23 @@ export function LeadDetailClient({
       }
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleRescore() {
+    setIsScoring(true);
+    try {
+      await rescoreLead(leadId);
+      await refreshData();
+      toast.success("Lead rescored.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        toast.error("You do not have permission to rescore.");
+      } else {
+        toast.error("Unable to rescore this lead.");
+      }
+    } finally {
+      setIsScoring(false);
     }
   }
 
@@ -155,8 +173,11 @@ export function LeadDetailClient({
               ))}
             </select>
           </div>
-          <Button onClick={handleStatusUpdate} disabled={isSaving || isStatusUnchanged}>
+          <Button onClick={handleStatusUpdate} disabled={isSaving || isStatusUnchanged || isScoring}>
             {isSaving ? "Updating..." : "Update Status"}
+          </Button>
+          <Button variant="secondary" onClick={handleRescore} disabled={isScoring || isSaving}>
+            {isScoring ? "Rescoring..." : "Rescore"}
           </Button>
         </CardContent>
       </Card>

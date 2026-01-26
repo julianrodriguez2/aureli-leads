@@ -35,3 +35,9 @@ export async function updateLeadStatus(id: string, status: string): Promise<Lead
     body: JSON.stringify({ status })
   });
 }
+
+export async function rescoreLead(id: string): Promise<LeadDetailDto> {
+  return apiFetch<LeadDetailDto>(`/api/leads/${id}/score`, {
+    method: "POST"
+  });
+}

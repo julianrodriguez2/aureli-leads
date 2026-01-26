@@ -18,6 +18,9 @@ public sealed class LeadsController : ControllerBase
     private readonly AureliLeadsDbContext _dbContext;
     private readonly ILeadService _leadService;
     private static readonly string[] AllowedStatuses = { "New", "Contacted", "Qualified", "Disqualified" };
+    private static readonly string[] HighIntentKeywords = { "quote", "pricing", "price", "estimate", "book", "appointment", "schedule", "asap" };
+    private static readonly string[] SpamKeywords = { "backlinks", "seo services", "guest post", "rank your site", "casino" };
+    private static readonly string[] LocalCities = { "riverside", "corona", "eastvale", "norco" };
 
     public LeadsController(AureliLeadsDbContext dbContext, ILeadService leadService)
     {
@@ -196,7 +199,7 @@ public sealed class LeadsController : ControllerBase
                 LeadId = lead.Id,
                 Type = "WebhookSkipped",
                 Notes = "Webhook target missing",
-                DataJson = JsonSerializer.Serialize(new { reason = "Missing WebhookTargetUrl setting." }),
+                DataJson = JsonSerializer.Serialize(new { reason = "Missing WebhookTargetUrl" }),
                 CreatedAt = now
             });
         }
@@ -207,7 +210,102 @@ public sealed class LeadsController : ControllerBase
         return Ok(MapLeadDetail(lead));
     }
 
-    // TODO: add rescore endpoint.
+    [HttpPost("{id:guid}/score")]
+    public async Task<ActionResult<LeadDetailDto>> ScoreLead(Guid id, CancellationToken cancellationToken)
+    {
+        if (!CanScore(User))
+        {
+            return Forbid();
+        }
+
+        var lead = await _dbContext.Leads
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (lead is null)
+        {
+            return NotFound();
+        }
+
+        var oldScore = lead.Score;
+        var (newScore, reasons) = CalculateScore(lead);
+        var now = DateTime.UtcNow;
+
+        lead.Score = newScore;
+        lead.ScoreReasonsJson = JsonSerializer.Serialize(reasons);
+        lead.UpdatedAt = now;
+
+        var activities = new List<LeadActivity>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "Scored",
+                Notes = "Lead scored",
+                DataJson = JsonSerializer.Serialize(new { oldScore, newScore, reasons }),
+                CreatedAt = now
+            }
+        };
+
+        var targetUrl = await _dbContext.Settings
+            .AsNoTracking()
+            .Where(setting => setting.Key == "WebhookTargetUrl")
+            .Select(setting => setting.Value)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(targetUrl))
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                eventType = "LeadScored",
+                leadId = lead.Id,
+                oldScore,
+                newScore,
+                reasons,
+                timestamp = now,
+                lead = new
+                {
+                    id = lead.Id,
+                    firstName = lead.FirstName,
+                    lastName = lead.LastName,
+                    email = lead.Email,
+                    phone = lead.Phone,
+                    status = lead.Status,
+                    source = lead.Source,
+                    score = newScore
+                }
+            });
+
+            _dbContext.AutomationEvents.Add(new AutomationEvent
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                EventType = "LeadScored",
+                Payload = payload,
+                TargetUrl = targetUrl,
+                Status = "Pending",
+                ScheduledAt = now,
+                CreatedAt = now
+            });
+        }
+        else
+        {
+            activities.Add(new LeadActivity
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "WebhookSkipped",
+                Notes = "Webhook target missing",
+                DataJson = JsonSerializer.Serialize(new { reason = "Missing WebhookTargetUrl setting." }),
+                CreatedAt = now
+            });
+        }
+
+        _dbContext.LeadActivities.AddRange(activities);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(MapLeadDetail(lead));
+    }
 
     [HttpPost]
     public ActionResult<LeadDetailDto> CreateLead([FromBody] CreateLeadRequest request)
@@ -269,6 +367,18 @@ public sealed class LeadsController : ControllerBase
             || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool CanScore(ClaimsPrincipal user)
+    {
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return false;
+        }
+
+        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
+            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string? NormalizeStatus(string status)
     {
         foreach (var allowed in AllowedStatuses)
@@ -280,6 +390,82 @@ public sealed class LeadsController : ControllerBase
         }
 
         return null;
+    }
+
+    private static (int Score, List<ScoreReasonDto> Reasons) CalculateScore(Lead lead)
+    {
+        var reasons = new List<ScoreReasonDto>();
+        var score = 0;
+
+        void AddReason(string rule, int delta)
+        {
+            reasons.Add(new ScoreReasonDto { Rule = rule, Delta = delta });
+            score += delta;
+        }
+
+        var hasEmail = !string.IsNullOrWhiteSpace(lead.Email);
+        if (hasEmail)
+        {
+            AddReason("HasEmail", 20);
+        }
+
+        var hasPhone = !string.IsNullOrWhiteSpace(lead.Phone);
+        if (hasPhone)
+        {
+            AddReason("HasPhone", 20);
+        }
+
+        if (ContainsKeyword(lead.Message, HighIntentKeywords))
+        {
+            AddReason("HighIntentKeywords", 15);
+        }
+
+        if (string.Equals(lead.Source, "google_ads", StringComparison.OrdinalIgnoreCase))
+        {
+            AddReason("SourceWeightGoogleAds", 10);
+        }
+        else if (string.Equals(lead.Source, "referral", StringComparison.OrdinalIgnoreCase))
+        {
+            AddReason("SourceWeightReferral", 8);
+        }
+
+        if (ContainsKeyword(lead.MetadataJson, LocalCities))
+        {
+            AddReason("LocalAreaMatch", 10);
+        }
+
+        if (ContainsKeyword(lead.Message, SpamKeywords))
+        {
+            AddReason("SpamPenalty", -30);
+        }
+
+        if (!hasEmail && !hasPhone)
+        {
+            AddReason("MissingContactPenalty", -15);
+        }
+
+        score = Math.Clamp(score, 0, 100);
+
+        return (score, reasons);
+    }
+
+    private static bool ContainsKeyword(string? value, string[] keywords)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var lower = value.ToLowerInvariant();
+        foreach (var keyword in keywords)
+        {
+            if (lower.Contains(keyword))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static JsonElement? ParseJsonElement(string? json)

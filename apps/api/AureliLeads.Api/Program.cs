@@ -165,6 +165,59 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
+    var localCities = new[] { "riverside", "corona", "eastvale", "norco" };
+    var localCityNames = new[] { "Riverside", "Corona", "Eastvale", "Norco" };
+    var highIntentKeywords = new[] { "quote", "pricing", "price", "estimate", "book", "appointment", "schedule", "asap" };
+    var spamKeywords = new[] { "backlinks", "seo services", "guest post", "rank your site", "casino" };
+    var highIntentMessages = new[]
+    {
+        "Requesting a pricing quote and estimate.",
+        "Can we schedule an appointment ASAP?",
+        "Looking to book a demo and discuss pricing.",
+        "Interested in a quick estimate for our team."
+    };
+    var spamMessages = new[]
+    {
+        "We offer backlinks and SEO services.",
+        "Guest post opportunities to rank your site.",
+        "Casino backlinks campaign inquiry."
+    };
+
+    bool ContainsKeyword(string? value, string[] keywords)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var lower = value.ToLowerInvariant();
+        foreach (var keyword in keywords)
+        {
+            if (lower.Contains(keyword))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    Dictionary<string, object?> ParseMetadata(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new Dictionary<string, object?>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, object?>>(json) ?? new Dictionary<string, object?>();
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, object?>();
+        }
+    }
 
     var existingLeads = await dbContext.Leads.AsNoTracking().ToListAsync();
     if (existingLeads.Count > 0)
@@ -207,8 +260,10 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         var newActivities = new List<LeadActivity>();
         var hasLeadUpdates = false;
 
-        foreach (var lead in seededLeads)
+        for (var i = 0; i < seededLeads.Count; i++)
         {
+            var lead = seededLeads[i];
+
             if (string.IsNullOrWhiteSpace(lead.TagsJson))
             {
                 lead.TagsJson = JsonSerializer.Serialize(tagSets[random.Next(tagSets.Length)]);
@@ -217,12 +272,26 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
 
             if (string.IsNullOrWhiteSpace(lead.MetadataJson))
             {
-                lead.MetadataJson = JsonSerializer.Serialize(new Dictionary<string, object?>
+                var metadata = new Dictionary<string, object?>
                 {
                     ["utm_source"] = lead.Source,
                     ["campaign"] = $"launch-{random.Next(1, 4)}",
                     ["region"] = "NA"
-                });
+                };
+
+                if (i % 3 == 0)
+                {
+                    metadata["city"] = localCityNames[random.Next(localCityNames.Length)];
+                }
+
+                lead.MetadataJson = JsonSerializer.Serialize(metadata);
+                hasLeadUpdates = true;
+            }
+            else if (!ContainsKeyword(lead.MetadataJson, localCities) && i % 3 == 0)
+            {
+                var metadata = ParseMetadata(lead.MetadataJson);
+                metadata["city"] = localCityNames[random.Next(localCityNames.Length)];
+                lead.MetadataJson = JsonSerializer.Serialize(metadata);
                 hasLeadUpdates = true;
             }
 
@@ -237,6 +306,29 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
 
                 lead.ScoreReasonsJson = JsonSerializer.Serialize(scoreReasons);
                 hasLeadUpdates = true;
+            }
+
+            var hasHighIntent = ContainsKeyword(lead.Message, highIntentKeywords);
+            var hasSpam = ContainsKeyword(lead.Message, spamKeywords);
+            if (!hasHighIntent && !hasSpam)
+            {
+                string? injectedMessage = null;
+                if (i % 8 == 0)
+                {
+                    injectedMessage = spamMessages[random.Next(spamMessages.Length)];
+                }
+                else if (i % 3 == 0)
+                {
+                    injectedMessage = highIntentMessages[random.Next(highIntentMessages.Length)];
+                }
+
+                if (!string.IsNullOrWhiteSpace(injectedMessage))
+                {
+                    lead.Message = string.IsNullOrWhiteSpace(lead.Message)
+                        ? injectedMessage
+                        : $"{lead.Message} {injectedMessage}";
+                    hasLeadUpdates = true;
+                }
             }
 
             if (!existingActivities.Any(activity => activity.LeadId == lead.Id && activity.Type == "Created"))
@@ -292,7 +384,13 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         "Looking to compare pricing tiers.",
         "Asked about onboarding timeline.",
         "Needs approval from leadership.",
-        "Wants to automate follow-ups."
+        "Wants to automate follow-ups.",
+        "Requesting a pricing quote and estimate.",
+        "Can we schedule an appointment ASAP?",
+        "Looking to book a demo and discuss pricing.",
+        "We offer backlinks and SEO services.",
+        "Guest post opportunities to rank your site.",
+        "Casino backlinks campaign inquiry."
     };
 
     var tagSets = new[]
@@ -328,6 +426,18 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
             new { rule = "Email engagement", delta = randomSeed.Next(5, 15) },
             new { rule = "Company size", delta = randomSeed.Next(10, 25) }
         };
+        var city = i % 3 == 0 ? localCityNames[randomSeed.Next(localCityNames.Length)] : null;
+        var metadata = new Dictionary<string, object?>
+        {
+            ["utm_source"] = source,
+            ["campaign"] = $"launch-{randomSeed.Next(1, 4)}",
+            ["region"] = "NA"
+        };
+
+        if (!string.IsNullOrWhiteSpace(city))
+        {
+            metadata["city"] = city;
+        }
 
         var lead = new Lead
         {
@@ -342,12 +452,7 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
             Score = score,
             Message = messages[randomSeed.Next(messages.Length)],
             TagsJson = JsonSerializer.Serialize(tags),
-            MetadataJson = JsonSerializer.Serialize(new Dictionary<string, object?>
-            {
-                ["utm_source"] = source,
-                ["campaign"] = $"launch-{randomSeed.Next(1, 4)}",
-                ["region"] = "NA"
-            }),
+            MetadataJson = JsonSerializer.Serialize(metadata),
             ScoreReasonsJson = JsonSerializer.Serialize(scoreReasons),
             CreatedAt = createdAt,
             UpdatedAt = updatedAt
