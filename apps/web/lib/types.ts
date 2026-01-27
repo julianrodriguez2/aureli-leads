@@ -62,6 +62,17 @@ export type AutomationEventDetailDto = {
   createdAt: string;
 };
 
+export type AutomationEventDto = {
+  id: string;
+  leadId: string;
+  eventType: string;
+  status: string;
+  attemptCount: number;
+  lastAttemptAt?: string | null;
+  lastError?: string | null;
+  createdAt: string;
+};
+
 export type LeadDetailDto = {
   id: string;
   firstName: string;
