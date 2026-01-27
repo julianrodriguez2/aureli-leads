@@ -8,7 +8,7 @@ namespace AureliLeads.Api.Services;
 
 public sealed class AutomationService : IAutomationService
 {
-    private const int MaxAttempts = 5;
+    private const int MaxAttempts = 10;
     private readonly AureliLeadsDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AutomationService> _logger;
@@ -71,8 +71,14 @@ public sealed class AutomationService : IAutomationService
 
             if (automationEvent.LastAttemptAt.HasValue)
             {
+                var lastAttemptAt = automationEvent.LastAttemptAt.Value;
+                if (now - lastAttemptAt < TimeSpan.FromSeconds(15))
+                {
+                    continue;
+                }
+
                 var delaySeconds = Math.Min(60d, 5d * Math.Pow(2, Math.Max(0, automationEvent.Attempts - 1)));
-                if (automationEvent.LastAttemptAt.Value.AddSeconds(delaySeconds) > now)
+                if (lastAttemptAt.AddSeconds(delaySeconds) > now)
                 {
                     continue;
                 }

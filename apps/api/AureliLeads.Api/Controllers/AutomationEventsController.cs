@@ -1,9 +1,11 @@
 using AureliLeads.Api.Data.DbContext;
+using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
 using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace AureliLeads.Api.Controllers;
 
@@ -12,6 +14,7 @@ namespace AureliLeads.Api.Controllers;
 [Route("api/automation-events")]
 public sealed class AutomationEventsController : ControllerBase
 {
+    private const int MaxAttempts = 10;
     private readonly AureliLeadsDbContext _dbContext;
     private readonly IAutomationService _automationService;
 
@@ -90,6 +93,64 @@ public sealed class AutomationEventsController : ControllerBase
         });
     }
 
+    [HttpPost("{id:guid}/retry")]
+    public async Task<IActionResult> RetryEvent(Guid id, CancellationToken cancellationToken)
+    {
+        if (!IsAdmin(User))
+        {
+            return Forbid();
+        }
+
+        var automationEvent = await _dbContext.AutomationEvents
+            .FirstOrDefaultAsync(evt => evt.Id == id, cancellationToken);
+
+        if (automationEvent is null)
+        {
+            return NotFound();
+        }
+
+        if (string.Equals(automationEvent.Status, "Sent", StringComparison.OrdinalIgnoreCase))
+        {
+            return Conflict(new { message = "Already sent" });
+        }
+
+        if (automationEvent.Attempts >= MaxAttempts)
+        {
+            return BadRequest(new { message = "Max attempts reached" });
+        }
+
+        var isRetryable = string.Equals(automationEvent.Status, "Failed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(automationEvent.Status, "Pending", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(automationEvent.Status, "queued", StringComparison.OrdinalIgnoreCase);
+
+        if (!isRetryable)
+        {
+            return BadRequest(new { message = "Event is not retryable" });
+        }
+
+        automationEvent.Status = "Pending";
+        automationEvent.LastError = null;
+        automationEvent.LastAttemptAt = null;
+
+        var now = DateTime.UtcNow;
+        _dbContext.LeadActivities.Add(new LeadActivity
+        {
+            Id = Guid.NewGuid(),
+            LeadId = automationEvent.LeadId,
+            Type = "WebhookRetryQueued",
+            Notes = "Retry queued",
+            DataJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                automationEventId = automationEvent.Id,
+                attemptCount = automationEvent.Attempts
+            }),
+            CreatedAt = now
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
     [HttpGet("{id:guid}")]
     public ActionResult<AutomationEventDetailDto> GetEvent(Guid id)
     {
@@ -109,5 +170,11 @@ public sealed class AutomationEventsController : ControllerBase
     {
         // TODO: implement immediate dispatch.
         return StatusCode(StatusCodes.Status501NotImplemented);
+    }
+
+    private static bool IsAdmin(ClaimsPrincipal user)
+    {
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        return role is not null && role.Equals("admin", StringComparison.OrdinalIgnoreCase);
     }
 }
