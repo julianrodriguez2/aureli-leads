@@ -41,3 +41,9 @@ export async function rescoreLead(id: string): Promise<LeadDetailDto> {
     method: "POST"
   });
 }
+
+export async function retryAutomationEvent(id: string): Promise<void> {
+  await apiFetch(`/api/automation-events/${id}/retry`, {
+    method: "POST"
+  });
+}

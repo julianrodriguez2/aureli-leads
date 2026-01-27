@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { RetryAutomationButton } from "@/components/automations/RetryAutomationButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
-import type { AutomationEventDto, PagedResponse } from "@/lib/types";
+import type { AutomationEventDto, MeDto, PagedResponse } from "@/lib/types";
 
 type AutomationsPageProps = {
   searchParams: Record<string, string | string[] | undefined>;
@@ -56,7 +57,7 @@ function formatDateTime(value?: string | null) {
 
 function truncate(value?: string | null, length = 60) {
   if (!value) {
-    return "—";
+    return "N/A";
   }
 
   return value.length > length ? `${value.slice(0, length)}...` : value;
@@ -75,8 +76,20 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
   const leadId = leadIdParam && isGuid(leadIdParam) ? leadIdParam : "";
 
   const token = cookies().get(AUTH_COOKIE_NAME)?.value;
+  let isAdmin = false;
   let data: PagedResponse<AutomationEventDto> | null = null;
   let errorMessage: string | null = null;
+
+  if (token) {
+    try {
+      const me = await apiFetch<MeDto>("/api/auth/me", {
+        headers: { Cookie: `${AUTH_COOKIE_NAME}=${token}` }
+      });
+      isAdmin = me.role.toLowerCase() === "admin";
+    } catch {
+      isAdmin = false;
+    }
+  }
 
   try {
     const queryString = buildQueryString({
@@ -200,12 +213,13 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
                   <TableHead>Last Attempt</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Last Error</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {events.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                       No automation events yet.
                     </TableCell>
                   </TableRow>
@@ -227,6 +241,19 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
                       <TableCell>{formatDateTime(evt.lastAttemptAt)}</TableCell>
                       <TableCell>{formatDateTime(evt.createdAt)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{truncate(evt.lastError)}</TableCell>
+                      <TableCell className="text-right">
+                        {isAdmin && evt.status === "Failed" ? (
+                          <RetryAutomationButton
+                            eventId={evt.id}
+                            eventType={evt.eventType}
+                            leadId={evt.leadId}
+                            attemptCount={evt.attemptCount}
+                            lastError={evt.lastError}
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
