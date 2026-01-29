@@ -1,5 +1,13 @@
 import { apiFetch } from "@/lib/api";
-import type { ActivityDto, AuthResponseDto, LeadDetailDto, MeDto } from "@/lib/types";
+import type {
+  ActivityDto,
+  AuthResponseDto,
+  LeadDetailDto,
+  MeDto,
+  SettingsDto,
+  UpdateSettingsRequest,
+  WebhookTestResponse
+} from "@/lib/types";
 
 export const AUTH_COOKIE_NAME = "access_token";
 
@@ -52,5 +60,24 @@ export async function addLeadNote(leadId: string, text: string): Promise<Activit
   return apiFetch<ActivityDto>(`/api/leads/${leadId}/notes`, {
     method: "POST",
     body: JSON.stringify({ text })
+  });
+}
+
+export async function getSettings(cookie?: string): Promise<SettingsDto> {
+  return apiFetch<SettingsDto>("/api/settings", {
+    headers: cookie ? { Cookie: cookie } : undefined
+  });
+}
+
+export async function updateWebhookSettings(payload: UpdateSettingsRequest): Promise<SettingsDto> {
+  return apiFetch<SettingsDto>("/api/settings/webhook", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function testWebhook(): Promise<WebhookTestResponse> {
+  return apiFetch<WebhookTestResponse>("/api/settings/webhook/test", {
+    method: "POST"
   });
 }

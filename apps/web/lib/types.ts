@@ -107,6 +107,24 @@ export type SettingDto = {
   updatedAt: string;
 };
 
+export type SettingsDto = {
+  webhookTargetUrl?: string | null;
+  webhookSecret?: string | null;
+  hasWebhookSecret?: boolean;
+};
+
+export type UpdateSettingsRequest = {
+  webhookTargetUrl: string;
+  webhookSecret?: string;
+  rotateSecret?: boolean;
+};
+
+export type WebhookTestResponse = {
+  ok: boolean;
+  statusCode: number;
+  error?: string | null;
+};
+
 export type UserDto = {
   id: string;
   email: string;
