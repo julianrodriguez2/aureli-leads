@@ -5,6 +5,7 @@ using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -307,6 +308,74 @@ public sealed class LeadsController : ControllerBase
         return Ok(MapLeadDetail(lead));
     }
 
+    [HttpPost("{id:guid}/notes")]
+    public async Task<ActionResult<ActivityDto>> AddNote(
+        Guid id,
+        [FromBody] AddLeadNoteRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!CanAddNotes(User))
+        {
+            return Forbid();
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Text))
+        {
+            return BadRequest();
+        }
+
+        var trimmedText = request.Text.Trim();
+        if (trimmedText.Length is < 1 or > 2000)
+        {
+            return BadRequest();
+        }
+
+        var lead = await _dbContext.Leads
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+
+        if (lead is null)
+        {
+            return NotFound();
+        }
+
+        var now = DateTime.UtcNow;
+        lead.UpdatedAt = now;
+
+        var authorEmail = User.FindFirstValue(ClaimTypes.Email)
+            ?? User.FindFirstValue(JwtRegisteredClaimNames.Email);
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["text"] = trimmedText
+        };
+
+        if (!string.IsNullOrWhiteSpace(authorEmail))
+        {
+            payload["authorEmail"] = authorEmail;
+        }
+
+        var activity = new LeadActivity
+        {
+            Id = Guid.NewGuid(),
+            LeadId = lead.Id,
+            Type = "NoteAdded",
+            Notes = "Lead note added",
+            DataJson = JsonSerializer.Serialize(payload),
+            CreatedAt = now
+        };
+
+        _dbContext.LeadActivities.Add(activity);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ActivityDto
+        {
+            Id = activity.Id,
+            Type = activity.Type,
+            Data = ParseJsonElement(activity.DataJson),
+            CreatedAt = activity.CreatedAt
+        });
+    }
+
     [HttpPost]
     public ActionResult<LeadDetailDto> CreateLead([FromBody] CreateLeadRequest request)
     {
@@ -368,6 +437,18 @@ public sealed class LeadsController : ControllerBase
     }
 
     private static bool CanScore(ClaimsPrincipal user)
+    {
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return false;
+        }
+
+        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
+            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanAddNotes(ClaimsPrincipal user)
     {
         var role = user.FindFirstValue(ClaimTypes.Role);
         if (string.IsNullOrWhiteSpace(role))

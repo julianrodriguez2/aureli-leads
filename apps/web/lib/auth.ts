@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import type { AuthResponseDto, LeadDetailDto, MeDto } from "@/lib/types";
+import type { ActivityDto, AuthResponseDto, LeadDetailDto, MeDto } from "@/lib/types";
 
 export const AUTH_COOKIE_NAME = "access_token";
 
@@ -45,5 +45,12 @@ export async function rescoreLead(id: string): Promise<LeadDetailDto> {
 export async function retryAutomationEvent(id: string): Promise<void> {
   await apiFetch(`/api/automation-events/${id}/retry`, {
     method: "POST"
+  });
+}
+
+export async function addLeadNote(leadId: string, text: string): Promise<ActivityDto> {
+  return apiFetch<ActivityDto>(`/api/leads/${leadId}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ text })
   });
 }

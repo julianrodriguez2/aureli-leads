@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiError, apiFetch } from "@/lib/api";
-import { rescoreLead, updateLeadStatus } from "@/lib/auth";
+import { addLeadNote, rescoreLead, updateLeadStatus } from "@/lib/auth";
 import type { ActivityDto, LeadDetailDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,9 +64,13 @@ export function LeadDetailClient({
   const [selectedStatus, setSelectedStatus] = useState(initialLead.status);
   const [isSaving, setIsSaving] = useState(false);
   const [isScoring, setIsScoring] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [isNoteSaving, setIsNoteSaving] = useState(false);
 
   const metadataJson = lead.metadata ? JSON.stringify(lead.metadata, null, 2) : null;
   const isStatusUnchanged = selectedStatus === lead.status;
+  const noteLength = noteText.trim().length;
+  const isNoteInvalid = noteLength < 1 || noteLength > 2000;
 
   async function refreshData() {
     const [leadResult, activityResult] = await Promise.allSettled([
@@ -124,6 +128,30 @@ export function LeadDetailClient({
       }
     } finally {
       setIsScoring(false);
+    }
+  }
+
+  async function handleAddNote() {
+    const trimmed = noteText.trim();
+    if (trimmed.length < 1 || trimmed.length > 2000) {
+      toast.error("Notes must be between 1 and 2000 characters.");
+      return;
+    }
+
+    setIsNoteSaving(true);
+    try {
+      await addLeadNote(leadId, trimmed);
+      setNoteText("");
+      await refreshData();
+      toast.success("Note added.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        toast.error("You do not have permission to add notes.");
+      } else {
+        toast.error("Unable to add note.");
+      }
+    } finally {
+      setIsNoteSaving(false);
     }
   }
 
@@ -241,6 +269,27 @@ export function LeadDetailClient({
 
       <Card>
         <CardHeader>
+          <CardTitle>Notes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <textarea
+            value={noteText}
+            onChange={(event) => setNoteText(event.target.value)}
+            placeholder="Add a note for this lead..."
+            rows={4}
+            className="w-full rounded-md border border-border/70 bg-white/80 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{noteLength}/2000</span>
+            <Button onClick={handleAddNote} disabled={isNoteSaving || isNoteInvalid}>
+              {isNoteSaving ? "Saving..." : "Add Note"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Activity timeline</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -249,21 +298,41 @@ export function LeadDetailClient({
           ) : activities.length === 0 ? (
             <p className="text-sm text-muted-foreground">No activity yet.</p>
           ) : (
-            activities.map((activity) => (
-              <div key={activity.id} className="rounded-xl border border-border/60 bg-white/70 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-foreground">{activity.type}</p>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(activity.createdAt)}</p>
+            activities.map((activity) => {
+              const noteTextValue = typeof activity.data?.text === "string" ? activity.data.text : null;
+              const authorEmail = typeof activity.data?.authorEmail === "string" ? activity.data.authorEmail : null;
+
+              if (activity.type === "NoteAdded" && noteTextValue) {
+                return (
+                  <div key={activity.id} className="rounded-xl border border-border/60 bg-white/70 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-foreground">Note</p>
+                      <p className="text-xs text-muted-foreground">{formatDateTime(activity.createdAt)}</p>
+                    </div>
+                    <p className="mt-2 text-sm text-foreground">{noteTextValue}</p>
+                    {authorEmail ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Added by {authorEmail}</p>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={activity.id} className="rounded-xl border border-border/60 bg-white/70 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">{activity.type}</p>
+                    <p className="text-xs text-muted-foreground">{formatDateTime(activity.createdAt)}</p>
+                  </div>
+                  {activity.data ? (
+                    <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {JSON.stringify(activity.data, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">No data payload.</p>
+                  )}
                 </div>
-                {activity.data ? (
-                  <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
-                    {JSON.stringify(activity.data, null, 2)}
-                  </pre>
-                ) : (
-                  <p className="mt-2 text-xs text-muted-foreground">No data payload.</p>
-                )}
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
