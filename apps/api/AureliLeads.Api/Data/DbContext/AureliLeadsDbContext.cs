@@ -14,6 +14,7 @@ public sealed class AureliLeadsDbContext : DbContext
     public DbSet<AutomationEvent> AutomationEvents => Set<AutomationEvent>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Setting> Settings => Set<Setting>();
+    public DbSet<SettingsActivity> SettingsActivities => Set<SettingsActivity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
