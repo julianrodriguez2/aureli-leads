@@ -1,3 +1,4 @@
+using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
@@ -105,7 +106,7 @@ public sealed class LeadsController : ControllerBase
         [FromBody] UpdateLeadStatusRequest request,
         CancellationToken cancellationToken)
     {
-        if (!CanUpdateStatus(User))
+        if (!Roles.IsAdminOrAgent(User))
         {
             return Forbid();
         }
@@ -214,7 +215,7 @@ public sealed class LeadsController : ControllerBase
     [HttpPost("{id:guid}/score")]
     public async Task<ActionResult<LeadDetailDto>> ScoreLead(Guid id, CancellationToken cancellationToken)
     {
-        if (!CanScore(User))
+        if (!Roles.IsAdminOrAgent(User))
         {
             return Forbid();
         }
@@ -314,7 +315,7 @@ public sealed class LeadsController : ControllerBase
         [FromBody] AddLeadNoteRequest request,
         CancellationToken cancellationToken)
     {
-        if (!CanAddNotes(User))
+        if (!Roles.IsAdminOrAgent(User))
         {
             return Forbid();
         }
@@ -422,42 +423,6 @@ public sealed class LeadsController : ControllerBase
             CreatedAt = lead.CreatedAt,
             UpdatedAt = lead.UpdatedAt
         };
-    }
-
-    private static bool CanUpdateStatus(ClaimsPrincipal user)
-    {
-        var role = user.FindFirstValue(ClaimTypes.Role);
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return false;
-        }
-
-        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
-            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool CanScore(ClaimsPrincipal user)
-    {
-        var role = user.FindFirstValue(ClaimTypes.Role);
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return false;
-        }
-
-        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
-            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool CanAddNotes(ClaimsPrincipal user)
-    {
-        var role = user.FindFirstValue(ClaimTypes.Role);
-        if (string.IsNullOrWhiteSpace(role))
-        {
-            return false;
-        }
-
-        return role.Equals("admin", StringComparison.OrdinalIgnoreCase)
-            || role.Equals("agent", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeStatus(string status)

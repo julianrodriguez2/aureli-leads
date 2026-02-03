@@ -5,7 +5,7 @@ public sealed class User
     public Guid Id { get; set; }
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
-    public string Role { get; set; } = "user";
+    public string Role { get; set; } = "ReadOnly";
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }

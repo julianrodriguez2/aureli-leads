@@ -1,3 +1,4 @@
+using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
@@ -5,7 +6,6 @@ using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
 namespace AureliLeads.Api.Controllers;
 
@@ -96,7 +96,7 @@ public sealed class AutomationEventsController : ControllerBase
     [HttpPost("{id:guid}/retry")]
     public async Task<IActionResult> RetryEvent(Guid id, CancellationToken cancellationToken)
     {
-        if (!IsAdmin(User))
+        if (!Roles.IsAdmin(User))
         {
             return Forbid();
         }
@@ -172,9 +172,4 @@ public sealed class AutomationEventsController : ControllerBase
         return StatusCode(StatusCodes.Status501NotImplemented);
     }
 
-    private static bool IsAdmin(ClaimsPrincipal user)
-    {
-        var role = user.FindFirstValue(ClaimTypes.Role);
-        return role is not null && role.Equals("admin", StringComparison.OrdinalIgnoreCase);
-    }
 }

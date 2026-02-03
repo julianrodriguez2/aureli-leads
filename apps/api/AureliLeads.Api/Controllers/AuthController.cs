@@ -68,15 +68,18 @@ public sealed class AuthController : ControllerBase
         var token = CreateToken(user);
         Response.Cookies.Append(_jwtOptions.CookieName, token, BuildCookieOptions());
 
+        var normalizedRole = Roles.Normalize(user.Role);
+
         return Ok(new AuthResponseDto
         {
             User = new UserDto
             {
                 Id = user.Id,
                 Email = user.Email,
-                Role = user.Role,
+                Role = normalizedRole,
                 IsActive = user.IsActive,
-                LastLoginAt = user.LastLoginAt
+                LastLoginAt = user.LastLoginAt,
+                CreatedAt = user.CreatedAt
             },
             TokenType = "Bearer",
             ExpiresInMinutes = _jwtOptions.ExpiryMinutes
@@ -115,21 +118,23 @@ public sealed class AuthController : ControllerBase
         {
             Id = user.Id,
             Email = user.Email,
-            Role = user.Role,
+            Role = Roles.Normalize(user.Role),
             IsActive = user.IsActive,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            CreatedAt = user.CreatedAt
         });
     }
 
     private string CreateToken(User user)
     {
+        var normalizedRole = Roles.Normalize(user.Role);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
+            new Claim(ClaimTypes.Role, normalizedRole)
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.Key));

@@ -150,7 +150,7 @@ static async Task SeedAdminAsync(IServiceProvider services)
     {
         Id = Guid.NewGuid(),
         Email = "admin@local.test",
-        Role = "admin",
+        Role = Roles.Admin,
         IsActive = true,
         CreatedAt = DateTime.UtcNow
     };

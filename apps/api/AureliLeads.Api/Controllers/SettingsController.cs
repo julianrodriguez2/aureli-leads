@@ -1,3 +1,4 @@
+using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
@@ -55,7 +56,7 @@ public sealed class SettingsController : ControllerBase
         [FromBody] UpdateWebhookSettingsRequest request,
         CancellationToken cancellationToken)
     {
-        if (!IsAdmin(User))
+        if (!Roles.IsAdmin(User))
         {
             return Forbid();
         }
@@ -136,7 +137,7 @@ public sealed class SettingsController : ControllerBase
     [HttpPost("webhook/test")]
     public async Task<ActionResult<object>> TestWebhook(CancellationToken cancellationToken)
     {
-        if (!IsAdmin(User))
+        if (!Roles.IsAdmin(User))
         {
             return Forbid();
         }
@@ -196,12 +197,6 @@ public sealed class SettingsController : ControllerBase
                 error = ex.Message
             });
         }
-    }
-
-    private static bool IsAdmin(ClaimsPrincipal user)
-    {
-        var role = user.FindFirstValue(ClaimTypes.Role);
-        return role is not null && role.Equals("admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetUserEmail(ClaimsPrincipal user)
