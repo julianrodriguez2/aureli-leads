@@ -27,7 +27,7 @@ export default async function AppLayout({
     <div className="min-h-screen">
       <AppHeader user={user} />
       <div className="mx-auto flex w-full max-w-6xl gap-6 px-4 pb-12 pt-6">
-        <AppSidebar />
+        <AppSidebar user={user} />
         <main className="min-h-[70vh] flex-1 animate-fade-up">
           {children}
         </main>

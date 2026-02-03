@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { MeDto } from "@/lib/types";
 
 const navItems = [
   { href: "/leads", label: "Leads" },
@@ -6,13 +7,20 @@ const navItems = [
   { href: "/settings", label: "Settings" }
 ];
 
-export function AppSidebar() {
+type AppSidebarProps = {
+  user: MeDto;
+};
+
+export function AppSidebar({ user }: AppSidebarProps) {
+  const isAdmin = user.role.toLowerCase() === "admin";
+  const items = isAdmin ? [...navItems, { href: "/users", label: "Users" }] : navItems;
+
   return (
     <aside className="w-56 shrink-0">
       <nav className="glass-panel space-y-1 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Workspace</p>
         <div className="mt-4 flex flex-col gap-2">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.href}
               href={item.href}

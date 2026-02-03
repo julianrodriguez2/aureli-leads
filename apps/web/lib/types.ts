@@ -131,9 +131,24 @@ export type UserDto = {
   role: string;
   isActive: boolean;
   lastLoginAt?: string | null;
+  createdAt: string;
 };
 
 export type MeDto = UserDto;
+
+export type CreateUserRequest = {
+  email: string;
+  password: string;
+  role: "Admin" | "Agent" | "ReadOnly";
+};
+
+export type UpdateUserRoleRequest = {
+  role: "Admin" | "Agent" | "ReadOnly";
+};
+
+export type ResetUserPasswordRequest = {
+  password: string;
+};
 
 export type AuthResponseDto = {
   user: UserDto;

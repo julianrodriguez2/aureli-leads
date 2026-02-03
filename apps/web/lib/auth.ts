@@ -5,7 +5,11 @@ import type {
   LeadDetailDto,
   MeDto,
   SettingsDto,
+  CreateUserRequest,
+  UpdateUserRoleRequest,
+  ResetUserPasswordRequest,
   UpdateSettingsRequest,
+  UserDto,
   WebhookTestResponse
 } from "@/lib/types";
 
@@ -79,5 +83,32 @@ export async function updateWebhookSettings(payload: UpdateSettingsRequest): Pro
 export async function testWebhook(): Promise<WebhookTestResponse> {
   return apiFetch<WebhookTestResponse>("/api/settings/webhook/test", {
     method: "POST"
+  });
+}
+
+export async function listUsers(cookie?: string): Promise<UserDto[]> {
+  return apiFetch<UserDto[]>("/api/users", {
+    headers: cookie ? { Cookie: cookie } : undefined
+  });
+}
+
+export async function createUser(payload: CreateUserRequest): Promise<UserDto> {
+  return apiFetch<UserDto>("/api/users", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateUserRole(id: string, payload: UpdateUserRoleRequest): Promise<UserDto> {
+  return apiFetch<UserDto>(`/api/users/${id}/role`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function resetUserPassword(id: string, payload: ResetUserPasswordRequest): Promise<void> {
+  await apiFetch(`/api/users/${id}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
