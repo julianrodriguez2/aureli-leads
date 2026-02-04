@@ -4,7 +4,7 @@ import { RetryAutomationButton } from "@/components/automations/RetryAutomationB
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import type { AutomationEventDto, MeDto, PagedResponse } from "@/lib/types";
 
@@ -79,6 +79,7 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
   let isAdmin = false;
   let data: PagedResponse<AutomationEventDto> | null = null;
   let errorMessage: string | null = null;
+  let errorTraceId: string | null = null;
 
   if (token) {
     try {
@@ -104,8 +105,13 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
     data = await apiFetch<PagedResponse<AutomationEventDto>>(`/api/automation-events?${queryString}`, {
       headers: token ? { Cookie: `${AUTH_COOKIE_NAME}=${token}` } : undefined
     });
-  } catch {
-    errorMessage = "Unable to load automation events right now.";
+  } catch (error) {
+    if (error instanceof ApiError) {
+      errorMessage = error.message || "Unable to load automation events right now.";
+      errorTraceId = error.traceId ?? null;
+    } else {
+      errorMessage = "Unable to load automation events right now.";
+    }
   }
 
   const events = data?.items ?? [];
@@ -200,7 +206,10 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
         <CardContent>
           {errorMessage ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-white/80 p-6 text-sm text-muted-foreground">
-              {errorMessage}
+              <p>{errorMessage}</p>
+              {errorTraceId ? (
+                <p className="mt-2 text-xs text-muted-foreground">Trace ID: {errorTraceId}</p>
+              ) : null}
             </div>
           ) : (
             <Table>
@@ -240,7 +249,9 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
                       <TableCell>{evt.attemptCount}</TableCell>
                       <TableCell>{formatDateTime(evt.lastAttemptAt)}</TableCell>
                       <TableCell>{formatDateTime(evt.createdAt)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{truncate(evt.lastError)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground" title={evt.lastError ?? undefined}>
+                        {truncate(evt.lastError)}
+                      </TableCell>
                       <TableCell className="text-right">
                         {isAdmin && evt.status === "Failed" ? (
                           <RetryAutomationButton

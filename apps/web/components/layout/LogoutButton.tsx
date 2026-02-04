@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/lib/auth";
+import { toastApiError } from "@/lib/toast";
 
 export function LogoutButton() {
   const router = useRouter();
@@ -16,8 +16,8 @@ export function LogoutButton() {
       await logout();
       router.replace("/login");
       router.refresh();
-    } catch {
-      toast.error("Sign out failed. Try again.");
+    } catch (error) {
+      toastApiError(error, "Sign out failed. Try again.");
     } finally {
       setIsLoading(false);
     }

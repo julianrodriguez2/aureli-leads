@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { WebhookSettingsForm } from "@/components/settings/WebhookSettingsForm";
+import { ApiError } from "@/lib/api";
 import { AUTH_COOKIE_NAME, getSettings, me } from "@/lib/auth";
 import type { MeDto, SettingsDto } from "@/lib/types";
 
@@ -7,6 +8,7 @@ export default async function SettingsPage() {
   const token = cookies().get(AUTH_COOKIE_NAME)?.value;
   let settings: SettingsDto | null = null;
   let errorMessage: string | null = null;
+  let errorTraceId: string | null = null;
   let user: MeDto | null = null;
 
   if (token) {
@@ -18,8 +20,13 @@ export default async function SettingsPage() {
 
     try {
       settings = await getSettings(`${AUTH_COOKIE_NAME}=${token}`);
-    } catch {
-      errorMessage = "Unable to load settings right now.";
+    } catch (error) {
+      if (error instanceof ApiError) {
+        errorMessage = error.message || "Unable to load settings right now.";
+        errorTraceId = error.traceId ?? null;
+      } else {
+        errorMessage = "Unable to load settings right now.";
+      }
     }
   } else {
     errorMessage = "Authentication required.";
@@ -38,6 +45,7 @@ export default async function SettingsPage() {
         initialSettings={settings}
         isAdmin={isAdmin}
         errorMessage={errorMessage}
+        errorTraceId={errorTraceId}
       />
     </div>
   );

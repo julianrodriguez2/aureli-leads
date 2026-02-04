@@ -4,12 +4,12 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login } from "@/lib/auth";
+import { toastError } from "@/lib/toast";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email."),
@@ -37,8 +37,8 @@ export default function LoginPage() {
       await login(values);
       router.replace("/leads");
       router.refresh();
-    } catch {
-      toast.error("Invalid email or password.");
+    } catch (error) {
+      toastError("Invalid email or password.", error);
     }
   };
 

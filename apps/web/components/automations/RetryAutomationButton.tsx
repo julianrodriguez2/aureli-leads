@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { retryAutomationEvent } from "@/lib/auth";
+import { toastApiError, toastError, toastSuccess } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 
 type RetryAutomationButtonProps = {
@@ -38,22 +38,22 @@ export function RetryAutomationButton({
     setIsSubmitting(true);
     try {
       await retryAutomationEvent(eventId);
-      toast.success("Queued for retry.");
+      toastSuccess("Queued for retry.");
       setIsOpen(false);
       router.refresh();
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 403) {
-          toast.error("You do not have permission to retry.");
+          toastError("You do not have permission to retry.", error);
         } else if (error.status === 404) {
-          toast.error("Automation event not found.");
+          toastError("Automation event not found.", error);
         } else if (error.status === 409) {
-          toast.error("Already sent.");
+          toastError("Already sent.", error);
         } else {
-          toast.error("Unable to retry this event.");
+          toastApiError(error, "Unable to retry this event.");
         }
       } else {
-        toast.error("Unable to retry this event.");
+        toastApiError(error, "Unable to retry this event.");
       }
     } finally {
       setIsSubmitting(false);

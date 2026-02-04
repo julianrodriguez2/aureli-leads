@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { toast } from "sonner";
 import { ApiError, apiFetch } from "@/lib/api";
 import { addLeadNote, rescoreLead, updateLeadStatus } from "@/lib/auth";
 import type { ActivityDto, LeadDetailDto } from "@/lib/types";
+import { toastApiError, toastError, toastSuccess } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ type LeadDetailClientProps = {
   initialLead: LeadDetailDto;
   initialActivities: ActivityDto[];
   initialActivityError?: string | null;
+  canEdit: boolean;
 };
 
 const statusOptions = ["New", "Contacted", "Qualified", "Disqualified"] as const;
@@ -56,7 +57,8 @@ export function LeadDetailClient({
   leadId,
   initialLead,
   initialActivities,
-  initialActivityError
+  initialActivityError,
+  canEdit
 }: LeadDetailClientProps) {
   const [lead, setLead] = useState(initialLead);
   const [activities, setActivities] = useState(initialActivities);
@@ -82,7 +84,7 @@ export function LeadDetailClient({
       setLead(leadResult.value);
       setSelectedStatus(leadResult.value.status);
     } else {
-      toast.error("Unable to refresh lead details.");
+      toastApiError(leadResult.reason, "Unable to refresh lead details.");
     }
 
     if (activityResult.status === "fulfilled") {
@@ -94,6 +96,11 @@ export function LeadDetailClient({
   }
 
   async function handleStatusUpdate() {
+    if (!canEdit) {
+      toastError("Read-only access. Status updates are disabled.");
+      return;
+    }
+
     if (isStatusUnchanged) {
       return;
     }
@@ -102,12 +109,12 @@ export function LeadDetailClient({
     try {
       await updateLeadStatus(leadId, selectedStatus);
       await refreshData();
-      toast.success("Status updated.");
+      toastSuccess("Status updated.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        toast.error("You do not have permission to update status.");
+        toastError("You do not have permission to update status.", error);
       } else {
-        toast.error("Unable to update status.");
+        toastApiError(error, "Unable to update status.");
       }
     } finally {
       setIsSaving(false);
@@ -115,16 +122,21 @@ export function LeadDetailClient({
   }
 
   async function handleRescore() {
+    if (!canEdit) {
+      toastError("Read-only access. Scoring is disabled.");
+      return;
+    }
+
     setIsScoring(true);
     try {
       await rescoreLead(leadId);
       await refreshData();
-      toast.success("Lead rescored.");
+      toastSuccess("Lead rescored.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        toast.error("You do not have permission to rescore.");
+        toastError("You do not have permission to rescore.", error);
       } else {
-        toast.error("Unable to rescore this lead.");
+        toastApiError(error, "Unable to rescore this lead.");
       }
     } finally {
       setIsScoring(false);
@@ -132,9 +144,14 @@ export function LeadDetailClient({
   }
 
   async function handleAddNote() {
+    if (!canEdit) {
+      toastError("Read-only access. Notes are disabled.");
+      return;
+    }
+
     const trimmed = noteText.trim();
     if (trimmed.length < 1 || trimmed.length > 2000) {
-      toast.error("Notes must be between 1 and 2000 characters.");
+      toastError("Notes must be between 1 and 2000 characters.");
       return;
     }
 
@@ -143,12 +160,12 @@ export function LeadDetailClient({
       await addLeadNote(leadId, trimmed);
       setNoteText("");
       await refreshData();
-      toast.success("Note added.");
+      toastSuccess("Note added.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
-        toast.error("You do not have permission to add notes.");
+        toastError("You do not have permission to add notes.", error);
       } else {
-        toast.error("Unable to add note.");
+        toastApiError(error, "Unable to add note.");
       }
     } finally {
       setIsNoteSaving(false);
@@ -192,6 +209,7 @@ export function LeadDetailClient({
               id="lead-status"
               value={selectedStatus}
               onChange={(event) => setSelectedStatus(event.target.value)}
+              disabled={!canEdit || isSaving || isScoring}
               className="h-9 w-52 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {statusOptions.map((status) => (
@@ -201,12 +219,15 @@ export function LeadDetailClient({
               ))}
             </select>
           </div>
-          <Button onClick={handleStatusUpdate} disabled={isSaving || isStatusUnchanged || isScoring}>
+          <Button onClick={handleStatusUpdate} disabled={!canEdit || isSaving || isStatusUnchanged || isScoring}>
             {isSaving ? "Updating..." : "Update Status"}
           </Button>
-          <Button variant="secondary" onClick={handleRescore} disabled={isScoring || isSaving}>
+          <Button variant="secondary" onClick={handleRescore} disabled={!canEdit || isScoring || isSaving}>
             {isScoring ? "Rescoring..." : "Rescore"}
           </Button>
+          {!canEdit ? (
+            <p className="text-xs text-muted-foreground">Read-only access. Updates are disabled.</p>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -277,14 +298,18 @@ export function LeadDetailClient({
             onChange={(event) => setNoteText(event.target.value)}
             placeholder="Add a note for this lead..."
             rows={4}
-            className="w-full rounded-md border border-border/70 bg-white/80 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            disabled={!canEdit || isNoteSaving}
+            className="w-full rounded-md border border-border/70 bg-white/80 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70"
           />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{noteLength}/2000</span>
-            <Button onClick={handleAddNote} disabled={isNoteSaving || isNoteInvalid}>
+            <Button onClick={handleAddNote} disabled={!canEdit || isNoteSaving || isNoteInvalid}>
               {isNoteSaving ? "Saving..." : "Add Note"}
             </Button>
           </div>
+          {!canEdit ? (
+            <p className="text-xs text-muted-foreground">Read-only access. Notes are disabled.</p>
+          ) : null}
         </CardContent>
       </Card>
 

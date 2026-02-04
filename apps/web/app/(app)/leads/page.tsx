@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { LeadTable } from "@/components/leads/LeadTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import type { LeadListItemDto, PagedResponse } from "@/lib/types";
 
@@ -48,6 +48,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
   const token = cookies().get(AUTH_COOKIE_NAME)?.value;
   let data: PagedResponse<LeadListItemDto> | null = null;
   let errorMessage: string | null = null;
+  let errorTraceId: string | null = null;
 
   try {
     const queryString = buildQueryString({
@@ -63,13 +64,22 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
     data = await apiFetch<PagedResponse<LeadListItemDto>>(`/api/leads?${queryString}`, {
       headers: token ? { Cookie: `${AUTH_COOKIE_NAME}=${token}` } : undefined
     });
-  } catch {
-    errorMessage = "Unable to load leads right now.";
+  } catch (error) {
+    if (error instanceof ApiError) {
+      errorMessage = error.message || "Unable to load leads right now.";
+      errorTraceId = error.traceId ?? null;
+    } else {
+      errorMessage = "Unable to load leads right now.";
+    }
   }
 
   const leads = data?.items ?? [];
   const totalPages = data?.totalPages ?? 1;
   const totalItems = data?.totalItems ?? 0;
+  const hasFilters = Boolean(q || status || source || minScoreValue);
+  const emptyMessage = hasFilters
+    ? "No leads match the current filters."
+    : "No leads yet. Import or create your first lead.";
 
   const prevPageHref = `/leads?${buildQueryString({
     q,
@@ -172,10 +182,13 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         <CardContent>
           {errorMessage ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-white/80 p-6 text-sm text-muted-foreground">
-              {errorMessage}
+              <p>{errorMessage}</p>
+              {errorTraceId ? (
+                <p className="mt-2 text-xs text-muted-foreground">Trace ID: {errorTraceId}</p>
+              ) : null}
             </div>
           ) : (
-            <LeadTable leads={leads} />
+            <LeadTable leads={leads} emptyMessage={emptyMessage} />
           )}
         </CardContent>
       </Card>

@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { createUser, resetUserPassword, updateUserRole } from "@/lib/auth";
 import type { CreateUserRequest, UserDto } from "@/lib/types";
+import { toastApiError, toastError, toastSuccess } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,18 +59,18 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
 
   async function handleCreateUser() {
     if (!isAdmin) {
-      toast.error("Admin access required.");
+      toastError("Admin access required.");
       return;
     }
 
     const trimmedEmail = createForm.email.trim();
     if (!isValidEmail(trimmedEmail)) {
-      toast.error("Enter a valid email.");
+      toastError("Enter a valid email.");
       return;
     }
 
     if (createForm.password.trim().length < 8) {
-      toast.error("Password must be at least 8 characters.");
+      toastError("Password must be at least 8 characters.");
       return;
     }
 
@@ -84,12 +84,12 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
       setUsers((prev) => [...prev, created]);
       setCreateForm({ email: "", password: "", role: "Agent" });
       setIsCreateOpen(false);
-      toast.success("User created.");
+      toastSuccess("User created.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        toast.error("Email already exists.");
+        toastError("Email already exists.", error);
       } else {
-        toast.error("Unable to create user.");
+        toastApiError(error, "Unable to create user.");
       }
     } finally {
       setIsCreating(false);
@@ -98,7 +98,7 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
 
   async function handleRoleSave(userId: string) {
     if (!isAdmin) {
-      toast.error("Admin access required.");
+      toastError("Admin access required.");
       return;
     }
 
@@ -115,9 +115,9 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
         delete next[userId];
         return next;
       });
-      toast.success("Role updated.");
-    } catch {
-      toast.error("Unable to update role.");
+      toastSuccess("Role updated.");
+    } catch (error) {
+      toastApiError(error, "Unable to update role.");
     }
   }
 
@@ -127,18 +127,18 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
     }
 
     if (resetPassword.trim().length < 8) {
-      toast.error("Password must be at least 8 characters.");
+      toastError("Password must be at least 8 characters.");
       return;
     }
 
     setIsResetting(true);
     try {
       await resetUserPassword(resetUser.id, { password: resetPassword });
-      toast.success("Password reset.");
+      toastSuccess("Password reset.");
       setResetPassword("");
       setResetUser(null);
-    } catch {
-      toast.error("Unable to reset password.");
+    } catch (error) {
+      toastApiError(error, "Unable to reset password.");
     } finally {
       setIsResetting(false);
     }

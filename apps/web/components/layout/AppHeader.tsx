@@ -8,6 +8,8 @@ type AppHeaderProps = {
 };
 
 export function AppHeader({ user }: AppHeaderProps) {
+  const isReadOnly = user.role.toLowerCase() === "readonly";
+
   return (
     <header className="border-b border-border/60 bg-white/70 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4">
@@ -23,7 +25,9 @@ export function AppHeader({ user }: AppHeaderProps) {
             <p className="text-sm font-medium text-foreground">{user.email}</p>
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{user.role}</p>
           </div>
-          <Button variant="secondary" size="sm">New lead</Button>
+          <Button variant="secondary" size="sm" disabled={isReadOnly}>
+            New lead
+          </Button>
           <LogoutButton />
         </div>
       </div>

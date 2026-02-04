@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 type LeadTableProps = {
   leads: LeadListItemDto[];
+  emptyMessage?: string;
 };
 
 const statusStyles: Record<string, string> = {
@@ -26,7 +27,7 @@ function formatDate(value?: string | null) {
   });
 }
 
-export function LeadTable({ leads }: LeadTableProps) {
+export function LeadTable({ leads, emptyMessage }: LeadTableProps) {
   return (
     <Table>
       <TableHeader>
@@ -44,7 +45,7 @@ export function LeadTable({ leads }: LeadTableProps) {
         {leads.length === 0 ? (
           <TableRow>
             <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
-              No leads yet. Import or create your first lead.
+              {emptyMessage ?? "No leads yet. Import or create your first lead."}
             </TableCell>
           </TableRow>
         ) : (

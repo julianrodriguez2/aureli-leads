@@ -2,8 +2,8 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ApiError, apiFetch } from "@/lib/api";
-import { AUTH_COOKIE_NAME } from "@/lib/auth";
-import type { ActivityDto, LeadDetailDto } from "@/lib/types";
+import { AUTH_COOKIE_NAME, me } from "@/lib/auth";
+import type { ActivityDto, LeadDetailDto, MeDto } from "@/lib/types";
 import { LeadDetailClient } from "@/components/leads/LeadDetailClient";
 import { Button } from "@/components/ui/button";
 
@@ -17,11 +17,20 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
     redirect("/login");
   }
 
+  let currentUser: MeDto | null = null;
   let lead: LeadDetailDto | null = null;
   let activities: ActivityDto[] = [];
   let errorMessage: string | null = null;
+  let errorTraceId: string | null = null;
   let activityError: string | null = null;
   let notFound = false;
+  let forbidden = false;
+
+  try {
+    currentUser = await me(`${AUTH_COOKIE_NAME}=${token}`);
+  } catch {
+    currentUser = null;
+  }
 
   try {
     lead = await apiFetch<LeadDetailDto>(`/api/leads/${params.id}`, {
@@ -34,9 +43,12 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
       }
       if (error.status === 404) {
         notFound = true;
+      } else if (error.status === 403) {
+        forbidden = true;
       } else {
-        errorMessage = "Unable to load this lead.";
+        errorMessage = error.message || "Unable to load this lead.";
       }
+      errorTraceId = error.traceId ?? null;
     } else {
       errorMessage = "Unable to load this lead.";
     }
@@ -56,6 +68,23 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
     );
   }
 
+  if (forbidden) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/leads">Back to Leads</Link>
+        </Button>
+        <div className="rounded-2xl border border-dashed border-border/70 bg-white/80 p-6">
+          <h2 className="text-lg font-semibold">Not authorized</h2>
+          <p className="text-sm text-muted-foreground">You do not have access to view this lead.</p>
+          {errorTraceId ? (
+            <p className="mt-2 text-xs text-muted-foreground">Trace ID: {errorTraceId}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   if (!lead) {
     return (
       <div className="space-y-4">
@@ -64,6 +93,9 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
         </Button>
         <div className="rounded-2xl border border-dashed border-border/70 bg-white/80 p-6 text-sm text-muted-foreground">
           {errorMessage ?? "Unable to load this lead."}
+          {errorTraceId ? (
+            <p className="mt-2 text-xs text-muted-foreground">Trace ID: {errorTraceId}</p>
+          ) : null}
         </div>
       </div>
     );
@@ -73,8 +105,12 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
     activities = await apiFetch<ActivityDto[]>(`/api/leads/${params.id}/activities`, {
       headers: { Cookie: `${AUTH_COOKIE_NAME}=${token}` }
     });
-  } catch {
-    activityError = "Unable to load activity history.";
+  } catch (error) {
+    if (error instanceof ApiError) {
+      activityError = error.message || "Unable to load activity history.";
+    } else {
+      activityError = "Unable to load activity history.";
+    }
   }
 
   return (
@@ -83,6 +119,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
       initialLead={lead}
       initialActivities={activities}
       initialActivityError={activityError}
+      canEdit={currentUser?.role?.toLowerCase() === "admin" || currentUser?.role?.toLowerCase() === "agent"}
     />
   );
 }

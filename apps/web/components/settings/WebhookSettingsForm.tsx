@@ -4,9 +4,9 @@ import { useState } from "react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { updateWebhookSettings, testWebhook } from "@/lib/auth";
 import type { SettingsDto, UpdateSettingsRequest } from "@/lib/types";
+import { toastApiError, toastError, toastSuccess } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,9 +40,10 @@ type WebhookSettingsFormProps = {
   initialSettings: SettingsDto | null;
   isAdmin: boolean;
   errorMessage?: string | null;
+  errorTraceId?: string | null;
 };
 
-export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: WebhookSettingsFormProps) {
+export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage, errorTraceId }: WebhookSettingsFormProps) {
   const [hasWebhookSecret, setHasWebhookSecret] = useState(initialSettings?.hasWebhookSecret ?? false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -58,7 +59,7 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
 
   async function handleSave(values: FormValues) {
     if (!isAdmin) {
-      toast.error("Admin access required.");
+      toastError("Admin access required.");
       return;
     }
 
@@ -78,9 +79,9 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
         webhookTargetUrl: response.webhookTargetUrl ?? payload.webhookTargetUrl,
         webhookSecret: ""
       });
-      toast.success("Webhook settings saved.");
-    } catch {
-      toast.error("Unable to save webhook settings.");
+      toastSuccess("Webhook settings saved.");
+    } catch (error) {
+      toastApiError(error, "Unable to save webhook settings.");
     } finally {
       setIsSaving(false);
     }
@@ -88,14 +89,14 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
 
   async function handleRotate() {
     if (!isAdmin) {
-      toast.error("Admin access required.");
+      toastError("Admin access required.");
       return;
     }
 
     const values = form.getValues();
     const parsed = schema.safeParse(values);
     if (!parsed.success) {
-      toast.error(parsed.error.errors[0]?.message ?? "Fix validation errors first.");
+      toastError(parsed.error.errors[0]?.message ?? "Fix validation errors first.");
       return;
     }
 
@@ -110,9 +111,9 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
         webhookTargetUrl: response.webhookTargetUrl ?? values.webhookTargetUrl,
         webhookSecret: ""
       });
-      toast.success("Webhook secret rotated.");
-    } catch {
-      toast.error("Unable to rotate secret.");
+      toastSuccess("Webhook secret rotated.");
+    } catch (error) {
+      toastApiError(error, "Unable to rotate secret.");
     } finally {
       setIsRotating(false);
     }
@@ -120,7 +121,7 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
 
   async function handleTest() {
     if (!isAdmin) {
-      toast.error("Admin access required.");
+      toastError("Admin access required.");
       return;
     }
 
@@ -128,12 +129,12 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
     try {
       const response = await testWebhook();
       if (response.ok) {
-        toast.success(`Test webhook delivered (${response.statusCode}).`);
+        toastSuccess(`Test webhook delivered (${response.statusCode}).`);
       } else {
-        toast.error(response.error ?? `Test webhook failed (${response.statusCode}).`);
+        toastError(response.error ?? `Test webhook failed (${response.statusCode}).`);
       }
-    } catch {
-      toast.error("Unable to send test webhook.");
+    } catch (error) {
+      toastApiError(error, "Unable to send test webhook.");
     } finally {
       setIsTesting(false);
     }
@@ -148,7 +149,10 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage }: 
       <CardContent className="space-y-6">
         {errorMessage ? (
           <div className="rounded-xl border border-dashed border-border/70 bg-white/80 p-4 text-sm text-muted-foreground">
-            {errorMessage}
+            <p>{errorMessage}</p>
+            {errorTraceId ? (
+              <p className="mt-2 text-xs text-muted-foreground">Trace ID: {errorTraceId}</p>
+            ) : null}
           </div>
         ) : (
           <form onSubmit={form.handleSubmit(handleSave)} className="space-y-4">
