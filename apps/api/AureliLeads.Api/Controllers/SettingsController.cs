@@ -2,9 +2,11 @@ using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
+using AureliLeads.Api.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -21,15 +23,18 @@ public sealed class SettingsController : ControllerBase
     private readonly AureliLeadsDbContext _dbContext;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<SettingsController> _logger;
 
     public SettingsController(
         AureliLeadsDbContext dbContext,
         IHttpClientFactory httpClientFactory,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        ILogger<SettingsController> logger)
     {
         _dbContext = dbContext;
         _httpClientFactory = httpClientFactory;
         _environment = environment;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -63,13 +68,13 @@ public sealed class SettingsController : ControllerBase
 
         if (request is null || string.IsNullOrWhiteSpace(request.WebhookTargetUrl))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "WebhookTargetUrl is required."));
         }
 
         var targetUrl = request.WebhookTargetUrl.Trim();
-        if (!IsValidWebhookUrl(targetUrl))
+        if (!Validation.IsValidWebhookUrl(targetUrl))
         {
-            return BadRequest(new { message = "Invalid webhookTargetUrl" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid webhookTargetUrl."));
         }
 
         var now = DateTime.UtcNow;
@@ -95,7 +100,7 @@ public sealed class SettingsController : ControllerBase
             {
                 if (trimmedSecret.Length < 8 || trimmedSecret.Length > 200)
                 {
-                    return BadRequest(new { message = "Invalid webhookSecret length" });
+                    return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid webhookSecret length."));
                 }
 
                 nextSecret = trimmedSecret;
@@ -125,6 +130,7 @@ public sealed class SettingsController : ControllerBase
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Webhook settings updated by {ActorEmail}. Secret changed: {SecretChanged}", GetUserEmail(User), secretChanged);
 
         return Ok(new WebhookSettingsDto
         {
@@ -134,6 +140,7 @@ public sealed class SettingsController : ControllerBase
         });
     }
 
+    [EnableRateLimiting("webhook-test")]
     [HttpPost("webhook/test")]
     public async Task<ActionResult<object>> TestWebhook(CancellationToken cancellationToken)
     {
@@ -152,7 +159,7 @@ public sealed class SettingsController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(targetUrl))
         {
-            return BadRequest(new { message = "WebhookTargetUrl not configured" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "WebhookTargetUrl not configured."));
         }
 
         var payload = new
@@ -181,6 +188,8 @@ public sealed class SettingsController : ControllerBase
             var response = await httpClient.SendAsync(request, cancellationToken);
             var ok = response.IsSuccessStatusCode;
 
+            _logger.LogInformation("Webhook test sent. Status {StatusCode}", (int)response.StatusCode);
+
             return Ok(new
             {
                 ok,
@@ -190,6 +199,7 @@ public sealed class SettingsController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Webhook test failed.");
             return Ok(new
             {
                 ok = false,
@@ -203,21 +213,6 @@ public sealed class SettingsController : ControllerBase
     {
         return user.FindFirstValue(ClaimTypes.Email)
             ?? user.FindFirstValue(JwtRegisteredClaimNames.Email);
-    }
-
-    private static bool IsValidWebhookUrl(string url)
-    {
-        if (url.Length > 500)
-        {
-            return false;
-        }
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
     }
 
     private static string GenerateSecret()

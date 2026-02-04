@@ -1,11 +1,14 @@
 using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
+using AureliLeads.Api.Domain;
 using AureliLeads.Api.DTOs;
+using AureliLeads.Api.Infrastructure;
 using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AureliLeads.Api.Controllers;
 
@@ -17,11 +20,16 @@ public sealed class AutomationEventsController : ControllerBase
     private const int MaxAttempts = 10;
     private readonly AureliLeadsDbContext _dbContext;
     private readonly IAutomationService _automationService;
+    private readonly ILogger<AutomationEventsController> _logger;
 
-    public AutomationEventsController(AureliLeadsDbContext dbContext, IAutomationService automationService)
+    public AutomationEventsController(
+        AureliLeadsDbContext dbContext,
+        IAutomationService automationService,
+        ILogger<AutomationEventsController> logger)
     {
         _dbContext = dbContext;
         _automationService = automationService;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -42,12 +50,29 @@ public sealed class AutomationEventsController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            var trimmedStatus = status.Trim();
-            query = query.Where(evt => evt.Status == trimmedStatus);
+            var normalizedStatus = AutomationEventStatuses.Normalize(status);
+            if (normalizedStatus is null)
+            {
+                return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid status value."));
+            }
+
+            if (normalizedStatus == AutomationEventStatuses.Pending)
+            {
+                query = query.Where(evt => evt.Status == AutomationEventStatuses.Pending || evt.Status == AutomationEventStatuses.Queued);
+            }
+            else
+            {
+                query = query.Where(evt => evt.Status == normalizedStatus);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(eventType))
         {
+            if (!AutomationEventTypes.IsValid(eventType))
+            {
+                return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid eventType value."));
+            }
+
             var trimmedType = eventType.Trim();
             query = query.Where(evt => evt.EventType == trimmedType);
         }
@@ -93,6 +118,7 @@ public sealed class AutomationEventsController : ControllerBase
         });
     }
 
+    [EnableRateLimiting("retry")]
     [HttpPost("{id:guid}/retry")]
     public async Task<IActionResult> RetryEvent(Guid id, CancellationToken cancellationToken)
     {
@@ -111,12 +137,12 @@ public sealed class AutomationEventsController : ControllerBase
 
         if (string.Equals(automationEvent.Status, "Sent", StringComparison.OrdinalIgnoreCase))
         {
-            return Conflict(new { message = "Already sent" });
+            return Conflict(ApiErrorFactory.Create(HttpContext, "conflict", "Already sent."));
         }
 
         if (automationEvent.Attempts >= MaxAttempts)
         {
-            return BadRequest(new { message = "Max attempts reached" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Max attempts reached."));
         }
 
         var isRetryable = string.Equals(automationEvent.Status, "Failed", StringComparison.OrdinalIgnoreCase)
@@ -125,7 +151,7 @@ public sealed class AutomationEventsController : ControllerBase
 
         if (!isRetryable)
         {
-            return BadRequest(new { message = "Event is not retryable" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Event is not retryable."));
         }
 
         automationEvent.Status = "Pending";
@@ -148,6 +174,7 @@ public sealed class AutomationEventsController : ControllerBase
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Automation event retry queued {AutomationEventId}", automationEvent.Id);
         return NoContent();
     }
 

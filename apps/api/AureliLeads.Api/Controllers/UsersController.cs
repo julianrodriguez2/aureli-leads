@@ -2,12 +2,12 @@ using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
+using AureliLeads.Api.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net.Mail;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -20,11 +20,16 @@ public sealed class UsersController : ControllerBase
 {
     private readonly AureliLeadsDbContext _dbContext;
     private readonly IPasswordHasher<User> _passwordHasher;
+    private readonly ILogger<UsersController> _logger;
 
-    public UsersController(AureliLeadsDbContext dbContext, IPasswordHasher<User> passwordHasher)
+    public UsersController(
+        AureliLeadsDbContext dbContext,
+        IPasswordHasher<User> passwordHasher,
+        ILogger<UsersController> logger)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -63,22 +68,22 @@ public sealed class UsersController : ControllerBase
 
         if (request is null || string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Email and password are required."));
         }
 
-        if (!IsValidEmail(request.Email))
+        if (!Validation.IsValidEmail(request.Email))
         {
-            return BadRequest(new { message = "Invalid email" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid email."));
         }
 
-        if (request.Password.Trim().Length < 8)
+        if (!Validation.IsValidPassword(request.Password, 8))
         {
-            return BadRequest(new { message = "Password too short" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Password too short."));
         }
 
         if (!Roles.IsValidRole(request.Role))
         {
-            return BadRequest(new { message = "Invalid role" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid role."));
         }
 
         var email = request.Email.Trim().ToLowerInvariant();
@@ -88,7 +93,7 @@ public sealed class UsersController : ControllerBase
 
         if (existing)
         {
-            return Conflict(new { message = "Email already exists" });
+            return Conflict(ApiErrorFactory.Create(HttpContext, "conflict", "Email already exists."));
         }
 
         var now = DateTime.UtcNow;
@@ -120,6 +125,7 @@ public sealed class UsersController : ControllerBase
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("User created {TargetEmail}", user.Email);
 
         return Ok(new UserDto
         {
@@ -145,7 +151,7 @@ public sealed class UsersController : ControllerBase
 
         if (request is null || !Roles.IsValidRole(request.Role))
         {
-            return BadRequest(new { message = "Invalid role" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid role."));
         }
 
         var user = await _dbContext.Users.FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
@@ -173,6 +179,7 @@ public sealed class UsersController : ControllerBase
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("User role changed {TargetEmail} {OldRole}->{NewRole}", user.Email, oldRole, newRole);
 
         return Ok(new UserDto
         {
@@ -198,12 +205,12 @@ public sealed class UsersController : ControllerBase
 
         if (request is null || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Password is required."));
         }
 
-        if (request.Password.Trim().Length < 8)
+        if (!Validation.IsValidPassword(request.Password, 8))
         {
-            return BadRequest(new { message = "Password too short" });
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Password too short."));
         }
 
         var user = await _dbContext.Users.FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
@@ -227,20 +234,8 @@ public sealed class UsersController : ControllerBase
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("User password reset {TargetEmail}", user.Email);
         return NoContent();
-    }
-
-    private static bool IsValidEmail(string email)
-    {
-        try
-        {
-            _ = new MailAddress(email);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static string? GetUserEmail(ClaimsPrincipal user)

@@ -1,7 +1,9 @@
 using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
+using AureliLeads.Api.Domain;
 using AureliLeads.Api.DTOs;
+using AureliLeads.Api.Infrastructure;
 using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,15 +21,16 @@ public sealed class LeadsController : ControllerBase
 {
     private readonly AureliLeadsDbContext _dbContext;
     private readonly ILeadService _leadService;
-    private static readonly string[] AllowedStatuses = { "New", "Contacted", "Qualified", "Disqualified" };
+    private readonly ILogger<LeadsController> _logger;
     private static readonly string[] HighIntentKeywords = { "quote", "pricing", "price", "estimate", "book", "appointment", "schedule", "asap" };
     private static readonly string[] SpamKeywords = { "backlinks", "seo services", "guest post", "rank your site", "casino" };
     private static readonly string[] LocalCities = { "riverside", "corona", "eastvale", "norco" };
 
-    public LeadsController(AureliLeadsDbContext dbContext, ILeadService leadService)
+    public LeadsController(AureliLeadsDbContext dbContext, ILeadService leadService, ILogger<LeadsController> logger)
     {
         _dbContext = dbContext;
         _leadService = leadService;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -41,6 +44,11 @@ public sealed class LeadsController : ControllerBase
         [FromQuery] string? sort = "createdAt_desc",
         CancellationToken cancellationToken = default)
     {
+        if (!string.IsNullOrWhiteSpace(status) && LeadStatuses.Normalize(status) is null)
+        {
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid status filter."));
+        }
+
         var query = new LeadListQuery
         {
             Q = q,
@@ -113,13 +121,13 @@ public sealed class LeadsController : ControllerBase
 
         if (request is null || string.IsNullOrWhiteSpace(request.Status))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Status is required."));
         }
 
-        var normalizedStatus = NormalizeStatus(request.Status);
+        var normalizedStatus = LeadStatuses.Normalize(request.Status);
         if (normalizedStatus is null)
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid status value."));
         }
 
         var lead = await _dbContext.Leads
@@ -208,6 +216,8 @@ public sealed class LeadsController : ControllerBase
 
         _dbContext.LeadActivities.AddRange(activities);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Lead status updated {LeadId} {OldStatus}->{NewStatus}", lead.Id, previousStatus, normalizedStatus);
 
         return Ok(MapLeadDetail(lead));
     }
@@ -306,6 +316,8 @@ public sealed class LeadsController : ControllerBase
         _dbContext.LeadActivities.AddRange(activities);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        _logger.LogInformation("Lead scored {LeadId} {OldScore}->{NewScore}", lead.Id, oldScore, newScore);
+
         return Ok(MapLeadDetail(lead));
     }
 
@@ -322,13 +334,13 @@ public sealed class LeadsController : ControllerBase
 
         if (request is null || string.IsNullOrWhiteSpace(request.Text))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Note text is required."));
         }
 
         var trimmedText = request.Text.Trim();
         if (trimmedText.Length is < 1 or > 2000)
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Note text must be 1-2000 characters."));
         }
 
         var lead = await _dbContext.Leads
@@ -367,6 +379,8 @@ public sealed class LeadsController : ControllerBase
 
         _dbContext.LeadActivities.Add(activity);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Lead note added {LeadId}", lead.Id);
 
         return Ok(new ActivityDto
         {
@@ -423,19 +437,6 @@ public sealed class LeadsController : ControllerBase
             CreatedAt = lead.CreatedAt,
             UpdatedAt = lead.UpdatedAt
         };
-    }
-
-    private static string? NormalizeStatus(string status)
-    {
-        foreach (var allowed in AllowedStatuses)
-        {
-            if (string.Equals(allowed, status, StringComparison.OrdinalIgnoreCase))
-            {
-                return allowed;
-            }
-        }
-
-        return null;
     }
 
     private static (int Score, List<ScoreReasonDto> Reasons) CalculateScore(Lead lead)

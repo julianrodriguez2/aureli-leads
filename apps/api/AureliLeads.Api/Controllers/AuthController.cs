@@ -2,12 +2,14 @@ using AureliLeads.Api.Auth;
 using AureliLeads.Api.Data.DbContext;
 using AureliLeads.Api.Data.Entities;
 using AureliLeads.Api.DTOs;
+using AureliLeads.Api.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.RateLimiting;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -22,25 +24,29 @@ public sealed class AuthController : ControllerBase
     private readonly JwtOptions _jwtOptions;
     private readonly IPasswordHasher<User> _passwordHasher;
     private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         AureliLeadsDbContext dbContext,
         IOptions<JwtOptions> jwtOptions,
         IPasswordHasher<User> passwordHasher,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        ILogger<AuthController> logger)
     {
         _dbContext = dbContext;
         _jwtOptions = jwtOptions.Value;
         _passwordHasher = passwordHasher;
         _environment = environment;
+        _logger = logger;
     }
 
+    [EnableRateLimiting("login")]
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponseDto>> Login([FromBody] LoginRequestDto request, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+        if (request is null || !Validation.IsValidEmail(request.Email) || !Validation.IsValidPassword(request.Password, 1))
         {
-            return BadRequest();
+            return BadRequest(ApiErrorFactory.Create(HttpContext, "validation_error", "Invalid email or password."));
         }
 
         var email = request.Email.Trim().ToLowerInvariant();
@@ -48,12 +54,14 @@ public sealed class AuthController : ControllerBase
 
         if (user is null || !user.IsActive)
         {
+            _logger.LogInformation("Login failed for {Email}. User not found or inactive.", email);
             return Unauthorized();
         }
 
         var passwordCheck = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
         if (passwordCheck == PasswordVerificationResult.Failed)
         {
+            _logger.LogInformation("Login failed for {Email}. Invalid password.", email);
             return Unauthorized();
         }
 
@@ -64,6 +72,8 @@ public sealed class AuthController : ControllerBase
 
         user.LastLoginAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Login succeeded for {Email}.", email);
 
         var token = CreateToken(user);
         Response.Cookies.Append(_jwtOptions.CookieName, token, BuildCookieOptions());
@@ -90,7 +100,13 @@ public sealed class AuthController : ControllerBase
     public IActionResult Logout()
     {
         // TODO: invalidate server-side sessions if applicable.
-        Response.Cookies.Delete(_jwtOptions.CookieName, new CookieOptions { Path = "/" });
+        Response.Cookies.Delete(_jwtOptions.CookieName, new CookieOptions
+        {
+            Path = "/",
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = !_environment.IsDevelopment()
+        });
         return NoContent();
     }
 

@@ -106,6 +106,7 @@ public sealed class AutomationService : IAutomationService
                     automationEvent.Status = "Sent";
                     automationEvent.LastError = null;
                     automationEvent.ProcessedAt = DateTime.UtcNow;
+                    _logger.LogInformation("Automation event dispatched {AutomationEventId}", automationEvent.Id);
                 }
                 else
                 {
@@ -115,6 +116,8 @@ public sealed class AutomationService : IAutomationService
                     {
                         automationEvent.ProcessedAt = DateTime.UtcNow;
                     }
+                    _logger.LogWarning("Automation event dispatch failed {AutomationEventId} HTTP {StatusCode}",
+                        automationEvent.Id, (int)response.StatusCode);
                 }
             }
             catch (Exception ex)
