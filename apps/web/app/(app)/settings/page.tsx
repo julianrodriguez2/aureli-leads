@@ -39,6 +39,7 @@ export default async function SettingsPage() {
       <div>
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Workspace</p>
         <h2 className="text-2xl font-semibold">Settings</h2>
+        <p className="text-sm text-muted-foreground">Configure outbound webhook target for n8n.</p>
       </div>
 
       <WebhookSettingsForm

@@ -17,7 +17,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
   return (
     <aside className="w-56 shrink-0">
-      <nav className="glass-panel space-y-1 p-4">
+      <nav className="glass-panel space-y-2 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Workspace</p>
         <div className="mt-4 flex flex-col gap-2">
           {items.map((item) => (

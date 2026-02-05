@@ -5,9 +5,10 @@ import type { MeDto } from "@/lib/types";
 
 type AppHeaderProps = {
   user: MeDto;
+  isApiOnline?: boolean;
 };
 
-export function AppHeader({ user }: AppHeaderProps) {
+export function AppHeader({ user, isApiOnline = false }: AppHeaderProps) {
   const isReadOnly = user.role.toLowerCase() === "readonly";
 
   return (
@@ -25,6 +26,12 @@ export function AppHeader({ user }: AppHeaderProps) {
             <p className="text-sm font-medium text-foreground">{user.email}</p>
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{user.role}</p>
           </div>
+          {isApiOnline ? (
+            <div className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 md:flex">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              API Online
+            </div>
+          ) : null}
           <Button variant="secondary" size="sm" disabled={isReadOnly}>
             New lead
           </Button>

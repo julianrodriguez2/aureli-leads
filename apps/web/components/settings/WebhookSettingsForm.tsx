@@ -57,6 +57,21 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage, er
     }
   });
 
+  async function handleCopyUrl() {
+    const url = form.getValues("webhookTargetUrl").trim();
+    if (!url) {
+      toastError("Webhook URL is empty.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toastSuccess("Webhook URL copied.");
+    } catch (error) {
+      toastApiError(error, "Unable to copy webhook URL.");
+    }
+  }
+
   async function handleSave(values: FormValues) {
     if (!isAdmin) {
       toastError("Admin access required.");
@@ -158,12 +173,23 @@ export function WebhookSettingsForm({ initialSettings, isAdmin, errorMessage, er
           <form onSubmit={form.handleSubmit(handleSave)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="webhookTargetUrl">Webhook Target URL</Label>
-              <Input
-                id="webhookTargetUrl"
-                placeholder="https://your-n8n/webhook/..."
-                disabled={!isAdmin || isSaving || isRotating}
-                {...form.register("webhookTargetUrl")}
-              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  id="webhookTargetUrl"
+                  placeholder="https://your-n8n/webhook/..."
+                  disabled={!isAdmin || isSaving || isRotating}
+                  {...form.register("webhookTargetUrl")}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyUrl}
+                  disabled={!form.watch("webhookTargetUrl")}
+                >
+                  Copy URL
+                </Button>
+              </div>
               {form.formState.errors.webhookTargetUrl ? (
                 <p className="text-xs text-rose-600">{form.formState.errors.webhookTargetUrl.message}</p>
               ) : null}

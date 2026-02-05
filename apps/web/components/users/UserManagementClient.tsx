@@ -150,6 +150,7 @@ export function UserManagementClient({ initialUsers, isAdmin }: UserManagementCl
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Admin</p>
           <h2 className="text-2xl font-semibold">Users</h2>
+          <p className="text-sm text-muted-foreground">Manage roles and access.</p>
         </div>
         {isAdmin ? (
           <Button onClick={() => setIsCreateOpen(true)}>Create user</Button>

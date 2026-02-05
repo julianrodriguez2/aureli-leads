@@ -21,6 +21,8 @@ const statusStyles: Record<string, string> = {
   Failed: "bg-rose-100 text-rose-700"
 };
 
+const badgeBase = "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold";
+
 function getSearchParam(searchParams: AutomationsPageProps["searchParams"], key: string) {
   const value = searchParams[key];
   return Array.isArray(value) ? value[0] : value;
@@ -142,6 +144,7 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Automation</p>
           <h2 className="text-2xl font-semibold">Automation events</h2>
+          <p className="text-sm text-muted-foreground">Webhook delivery status and retries.</p>
         </div>
       </div>
 
@@ -237,7 +240,7 @@ export default async function AutomationsPage({ searchParams }: AutomationsPageP
                     <TableRow key={evt.id}>
                       <TableCell className="font-medium">{evt.eventType}</TableCell>
                       <TableCell>
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[evt.status] ?? "bg-slate-100 text-slate-700"}`}>
+                        <span className={`${badgeBase} ${statusStyles[evt.status] ?? "bg-slate-100 text-slate-700"}`}>
                           {evt.status}
                         </span>
                       </TableCell>

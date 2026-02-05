@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { LeadListItemDto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,6 +18,8 @@ const statusStyles: Record<string, string> = {
   Disqualified: "bg-slate-200 text-slate-600"
 };
 
+const badgeBase = "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold";
+
 function formatDate(value?: string | null) {
   if (!value) {
     return "N/A";
@@ -28,6 +33,12 @@ function formatDate(value?: string | null) {
 }
 
 export function LeadTable({ leads, emptyMessage }: LeadTableProps) {
+  const router = useRouter();
+
+  function handleRowClick(leadId: string) {
+    router.push(`/leads/${leadId}`);
+  }
+
   return (
     <Table>
       <TableHeader>
@@ -50,7 +61,19 @@ export function LeadTable({ leads, emptyMessage }: LeadTableProps) {
           </TableRow>
         ) : (
           leads.map((lead) => (
-            <TableRow key={lead.id}>
+            <TableRow
+              key={lead.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleRowClick(lead.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleRowClick(lead.id);
+                }
+              }}
+              className="cursor-pointer transition hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <TableCell>
                 <div className="font-medium">{lead.firstName} {lead.lastName}</div>
                 <div className="text-xs text-muted-foreground">{lead.email}</div>
@@ -58,7 +81,7 @@ export function LeadTable({ leads, emptyMessage }: LeadTableProps) {
               </TableCell>
               <TableCell className="uppercase text-xs tracking-[0.12em] text-muted-foreground">{lead.source}</TableCell>
               <TableCell>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[lead.status] ?? "bg-slate-100 text-slate-600"}`}>
+                <span className={`${badgeBase} ${statusStyles[lead.status] ?? "bg-slate-100 text-slate-600"}`}>
                   {lead.status}
                 </span>
               </TableCell>
@@ -66,7 +89,12 @@ export function LeadTable({ leads, emptyMessage }: LeadTableProps) {
               <TableCell>{formatDate(lead.createdAt)}</TableCell>
               <TableCell>{formatDate(lead.lastActivityAt ?? lead.createdAt)}</TableCell>
               <TableCell className="text-right">
-                <Button variant="ghost" size="sm" asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  asChild
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <Link href={`/leads/${lead.id}`}>View</Link>
                 </Button>
               </TableCell>

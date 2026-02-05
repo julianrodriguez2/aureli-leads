@@ -107,6 +107,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pipeline</p>
           <h2 className="text-2xl font-semibold">Leads</h2>
+          <p className="text-sm text-muted-foreground">Filter and review incoming leads.</p>
         </div>
         <Button>Import leads</Button>
       </div>
