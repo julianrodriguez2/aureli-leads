@@ -38,7 +38,9 @@ builder.Services.AddSwaggerGen(options =>
     options.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "Aureli Leads API",
-        Version = "v1"
+        Version = "v1",
+        Description = "Authentication uses JWT stored in the httpOnly `access_token` cookie. " +
+                      "Call /api/auth/login to set the cookie and include it on subsequent requests."
     });
 
     var securityScheme = new OpenApiSecurityScheme
@@ -61,6 +63,8 @@ builder.Services.AddSwaggerGen(options =>
     {
         { securityScheme, new string[] { } }
     });
+
+    options.OperationFilter<AureliLeads.Api.Infrastructure.SwaggerExamplesOperationFilter>();
 });
 
 builder.Services.AddDbContext<AureliLeadsDbContext>(options =>
@@ -206,10 +210,10 @@ app.UseStatusCodePages(async statusContext =>
 });
 
 await ApplyMigrationsAsync(app.Services);
-await SeedAdminAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
+    await SeedDemoUsersAsync(app.Services);
     await SeedSampleLeadsAsync(app.Services);
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -230,40 +234,77 @@ static async Task ApplyMigrationsAsync(IServiceProvider services)
     await dbContext.Database.MigrateAsync();
 }
 
-static async Task SeedAdminAsync(IServiceProvider services)
+static async Task SeedDemoUsersAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
-
-    if (await dbContext.Users.AnyAsync())
-    {
-        return;
-    }
-
     var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
-    var adminUser = new User
+    var now = DateTime.UtcNow;
+
+    var demoUsers = new[]
     {
-        Id = Guid.NewGuid(),
-        Email = "admin@local.test",
-        Role = Roles.Admin,
-        IsActive = true,
-        CreatedAt = DateTime.UtcNow
+        new { Email = "admin@local.test", Password = "Admin123!", Role = Roles.Admin },
+        new { Email = "agent@local.test", Password = "Agent123!", Role = Roles.Agent },
+        new { Email = "readonly@local.test", Password = "Readonly123!", Role = Roles.ReadOnly }
     };
 
-    adminUser.PasswordHash = hasher.HashPassword(adminUser, "Admin123!");
+    var existingEmails = await dbContext.Users
+        .AsNoTracking()
+        .Select(user => user.Email)
+        .ToListAsync();
 
-    dbContext.Users.Add(adminUser);
-    await dbContext.SaveChangesAsync();
+    var normalizedExisting = new HashSet<string>(existingEmails.Select(email => email.ToLowerInvariant()));
+    var addedAny = false;
+
+    foreach (var demoUser in demoUsers)
+    {
+        var email = demoUser.Email.Trim().ToLowerInvariant();
+        if (normalizedExisting.Contains(email))
+        {
+            continue;
+        }
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = email,
+            Role = demoUser.Role,
+            IsActive = true,
+            CreatedAt = now
+        };
+
+        user.PasswordHash = hasher.HashPassword(user, demoUser.Password);
+        dbContext.Users.Add(user);
+        addedAny = true;
+    }
+
+    if (addedAny)
+    {
+        await dbContext.SaveChangesAsync();
+    }
 }
 
 static async Task SeedSampleLeadsAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
-    var localCities = new[] { "riverside", "corona", "eastvale", "norco" };
+    var random = new Random(42);
+    var sources = new[] { "web", "google_ads", "referral", "n8n" };
+    var statuses = new[] { "New", "Contacted", "Qualified", "Disqualified" };
     var localCityNames = new[] { "Riverside", "Corona", "Eastvale", "Norco" };
+    var localCitiesLower = localCityNames.Select(city => city.ToLowerInvariant()).ToArray();
+    var landingPages = new[] { "/pricing", "/demo", "/contact", "/solutions/real-estate", "/solutions/operations" };
+    var utmCampaigns = new[] { "spring-launch", "q1-growth", "partner-referral", "retargeting", "webinar-jan" };
     var highIntentKeywords = new[] { "quote", "pricing", "price", "estimate", "book", "appointment", "schedule", "asap" };
     var spamKeywords = new[] { "backlinks", "seo services", "guest post", "rank your site", "casino" };
+    var inquiryMessages = new[]
+    {
+        "Interested in a demo next week for our operations team.",
+        "Looking to compare pricing tiers before rollout.",
+        "Asked about onboarding timeline and integrations.",
+        "Needs approval from leadership; follow up Friday.",
+        "We want to automate follow-ups for inbound leads."
+    };
     var highIntentMessages = new[]
     {
         "Requesting a pricing quote and estimate.",
@@ -277,6 +318,30 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         "Guest post opportunities to rank your site.",
         "Casino backlinks campaign inquiry."
     };
+    var noteTemplates = new[]
+    {
+        "Left voicemail, follow up tomorrow.",
+        "Asked for a case study in their industry.",
+        "Needs approval from finance team.",
+        "Requested a custom workflow walkthrough."
+    };
+    var companies = new[]
+    {
+        "Summit Realty", "Nimbus Logistics", "Brightline Dental", "Lumen Fitness",
+        "Evergreen Interiors", "Catalyst Insurance", "Northwind Labs", "Monarch Builders",
+        "Atlas Advisors", "Harborview Solar", "Bluecrest HVAC", "Sierra Legal"
+    };
+    var firstNames = new[] { "Ava", "Mateo", "Priya", "Liam", "Noah", "Sophia", "Maya", "Ethan", "Zoe", "Lucas", "Mila", "Aria" };
+    var lastNames = new[] { "Chen", "Silva", "Nair", "Johnson", "Garcia", "Patel", "Kim", "Singh", "Brown", "Nguyen", "Rodriguez", "Lopez" };
+    var tagSets = new[]
+    {
+        new[] { "inbound", "priority" },
+        new[] { "enterprise" },
+        new[] { "trial", "smb" },
+        new[] { "partner" },
+        new[] { "repeat", "high-value" }
+    };
+    const string demoWebhookUrl = "https://hooks.example.com/aureli";
 
     bool ContainsKeyword(string? value, string[] keywords)
     {
@@ -314,6 +379,104 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         }
     }
 
+    (int Score, List<object> Reasons) BuildScore(Lead lead, string? metadataJson)
+    {
+        var score = 0;
+        var reasons = new List<object>();
+
+        void AddReason(string rule, int delta)
+        {
+            reasons.Add(new { rule, delta });
+            score += delta;
+        }
+
+        if (!string.IsNullOrWhiteSpace(lead.Email))
+        {
+            AddReason("HasEmail", 20);
+        }
+
+        if (!string.IsNullOrWhiteSpace(lead.Phone))
+        {
+            AddReason("HasPhone", 20);
+        }
+
+        if (ContainsKeyword(lead.Message, highIntentKeywords))
+        {
+            AddReason("HighIntentKeywords", 15);
+        }
+
+        if (string.Equals(lead.Source, "google_ads", StringComparison.OrdinalIgnoreCase))
+        {
+            AddReason("SourceWeightGoogleAds", 10);
+        }
+        else if (string.Equals(lead.Source, "referral", StringComparison.OrdinalIgnoreCase))
+        {
+            AddReason("SourceWeightReferral", 8);
+        }
+
+        if (ContainsKeyword(metadataJson, localCitiesLower))
+        {
+            AddReason("LocalAreaMatch", 10);
+        }
+
+        if (ContainsKeyword(lead.Message, spamKeywords))
+        {
+            AddReason("SpamPenalty", -30);
+        }
+
+        if (string.IsNullOrWhiteSpace(lead.Email) && string.IsNullOrWhiteSpace(lead.Phone))
+        {
+            AddReason("MissingContactPenalty", -15);
+        }
+
+        score = Math.Clamp(score, 0, 100);
+        return (score, reasons);
+    }
+
+    AutomationEvent BuildAutomationEvent(
+        Lead lead,
+        string eventType,
+        string status,
+        int attempts,
+        string? lastError,
+        DateTime createdAt)
+    {
+        var lastAttemptAt = status == "Pending" ? null : createdAt.AddMinutes(5);
+        var processedAt = status is "Sent" or "Failed" ? createdAt.AddMinutes(5) : null;
+        var payload = JsonSerializer.Serialize(new
+        {
+            eventType,
+            leadId = lead.Id,
+            timestamp = createdAt,
+            lead = new
+            {
+                id = lead.Id,
+                firstName = lead.FirstName,
+                lastName = lead.LastName,
+                email = lead.Email,
+                status = lead.Status,
+                source = lead.Source,
+                score = lead.Score
+            }
+        });
+
+        return new AutomationEvent
+        {
+            Id = Guid.NewGuid(),
+            LeadId = lead.Id,
+            EventType = eventType,
+            Status = status,
+            Attempts = attempts,
+            LastError = lastError,
+            LastAttemptAt = lastAttemptAt,
+            ProcessedAt = processedAt,
+            ScheduledAt = createdAt.AddMinutes(1),
+            CreatedAt = createdAt,
+            TargetUrl = demoWebhookUrl,
+            Payload = payload
+        };
+    }
+
     var existingLeads = await dbContext.Leads.AsNoTracking().ToListAsync();
     if (existingLeads.Count > 0)
     {
@@ -332,37 +495,39 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
             .Where(activity => seededLeadIds.Contains(activity.LeadId))
             .ToListAsync();
 
+        var existingActivityTypes = existingActivities
+            .GroupBy(activity => activity.LeadId)
+            .ToDictionary(
+                group => group.Key,
+                group => new HashSet<string>(group.Select(activity => activity.Type)));
+
+        var existingAutomationEvents = await dbContext.AutomationEvents
+            .AsNoTracking()
+            .Where(automationEvent => seededLeadIds.Contains(automationEvent.LeadId))
+            .ToListAsync();
+
+        var existingEventLeadIds = new HashSet<Guid>(existingAutomationEvents.Select(evt => evt.LeadId));
+
         var seededLeads = await dbContext.Leads
             .Where(lead => seededLeadIds.Contains(lead.Id))
             .ToListAsync();
 
-        var random = new Random(42);
-        var extraActivityTemplates = new[]
-        {
-            new { Type = "StatusChanged", Data = new { from = "New", to = "Contacted" } },
-            new { Type = "WebhookSent", Data = new { endpoint = "https://hooks.example.com/lead", status = 200 } },
-            new { Type = "WebhookFailed", Data = new { endpoint = "https://hooks.example.com/lead", error = "Timeout" } }
-        };
-
-        var tagSets = new[]
-        {
-            new[] { "inbound", "priority" },
-            new[] { "enterprise" },
-            new[] { "trial", "smb" },
-            new[] { "partner" }
-        };
-
         var newActivities = new List<LeadActivity>();
+        var newAutomationEvents = new List<AutomationEvent>();
         var hasLeadUpdates = false;
 
         for (var i = 0; i < seededLeads.Count; i++)
         {
             var lead = seededLeads[i];
+            var leadUpdated = false;
+            var activityTypes = existingActivityTypes.TryGetValue(lead.Id, out var types)
+                ? types
+                : new HashSet<string>();
 
             if (string.IsNullOrWhiteSpace(lead.TagsJson))
             {
                 lead.TagsJson = JsonSerializer.Serialize(tagSets[random.Next(tagSets.Length)]);
-                hasLeadUpdates = true;
+                leadUpdated = true;
             }
 
             if (string.IsNullOrWhiteSpace(lead.MetadataJson))
@@ -370,8 +535,8 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
                 var metadata = new Dictionary<string, object?>
                 {
                     ["utm_source"] = lead.Source,
-                    ["campaign"] = $"launch-{random.Next(1, 4)}",
-                    ["region"] = "NA"
+                    ["utm_campaign"] = utmCampaigns[random.Next(utmCampaigns.Length)],
+                    ["landingPage"] = landingPages[random.Next(landingPages.Length)]
                 };
 
                 if (i % 3 == 0)
@@ -380,27 +545,43 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
                 }
 
                 lead.MetadataJson = JsonSerializer.Serialize(metadata);
-                hasLeadUpdates = true;
+                leadUpdated = true;
             }
-            else if (!ContainsKeyword(lead.MetadataJson, localCities) && i % 3 == 0)
+            else
             {
                 var metadata = ParseMetadata(lead.MetadataJson);
-                metadata["city"] = localCityNames[random.Next(localCityNames.Length)];
-                lead.MetadataJson = JsonSerializer.Serialize(metadata);
-                hasLeadUpdates = true;
+                var updated = false;
+
+                if (!metadata.ContainsKey("utm_campaign"))
+                {
+                    metadata["utm_campaign"] = utmCampaigns[random.Next(utmCampaigns.Length)];
+                    updated = true;
+                }
+
+                if (!metadata.ContainsKey("landingPage"))
+                {
+                    metadata["landingPage"] = landingPages[random.Next(landingPages.Length)];
+                    updated = true;
+                }
+
+                if (!ContainsKeyword(lead.MetadataJson, localCitiesLower) && i % 3 == 0)
+                {
+                    metadata["city"] = localCityNames[random.Next(localCityNames.Length)];
+                    updated = true;
+                }
+
+                if (updated)
+                {
+                    lead.MetadataJson = JsonSerializer.Serialize(metadata);
+                    leadUpdated = true;
+                }
             }
 
             if (string.IsNullOrWhiteSpace(lead.ScoreReasonsJson))
             {
-                var scoreReasons = new[]
-                {
-                    new { rule = "Form submission", delta = 20 },
-                    new { rule = "Email engagement", delta = random.Next(5, 15) },
-                    new { rule = "Company size", delta = random.Next(10, 25) }
-                };
-
+                var (_, scoreReasons) = BuildScore(lead, lead.MetadataJson);
                 lead.ScoreReasonsJson = JsonSerializer.Serialize(scoreReasons);
-                hasLeadUpdates = true;
+                leadUpdated = true;
             }
 
             var hasHighIntent = ContainsKeyword(lead.Message, highIntentKeywords);
@@ -416,17 +597,21 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
                 {
                     injectedMessage = highIntentMessages[random.Next(highIntentMessages.Length)];
                 }
+                else if (string.IsNullOrWhiteSpace(lead.Message))
+                {
+                    injectedMessage = inquiryMessages[random.Next(inquiryMessages.Length)];
+                }
 
                 if (!string.IsNullOrWhiteSpace(injectedMessage))
                 {
                     lead.Message = string.IsNullOrWhiteSpace(lead.Message)
                         ? injectedMessage
                         : $"{lead.Message} {injectedMessage}";
-                    hasLeadUpdates = true;
+                    leadUpdated = true;
                 }
             }
 
-            if (!existingActivities.Any(activity => activity.LeadId == lead.Id && activity.Type == "Created"))
+            if (!activityTypes.Contains("Created"))
             {
                 newActivities.Add(new LeadActivity
                 {
@@ -439,24 +624,124 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
                 });
             }
 
-            if (!existingActivities.Any(activity => activity.LeadId == lead.Id && activity.Type != "Created"))
+            if (!activityTypes.Contains("StatusChanged") && i % 2 == 0)
             {
-                var template = extraActivityTemplates[random.Next(extraActivityTemplates.Length)];
                 newActivities.Add(new LeadActivity
                 {
                     Id = Guid.NewGuid(),
                     LeadId = lead.Id,
-                    Type = template.Type,
-                    Notes = "Seeded activity",
-                    DataJson = JsonSerializer.Serialize(template.Data),
+                    Type = "StatusChanged",
+                    Notes = "Status updated",
+                    DataJson = JsonSerializer.Serialize(new { from = "New", to = lead.Status }),
                     CreatedAt = lead.CreatedAt.AddDays(random.Next(1, 10))
                 });
+            }
+
+            if (!activityTypes.Contains("NoteAdded") && i % 4 == 0)
+            {
+                newActivities.Add(new LeadActivity
+                {
+                    Id = Guid.NewGuid(),
+                    LeadId = lead.Id,
+                    Type = "NoteAdded",
+                    Notes = "Seeded note",
+                    DataJson = JsonSerializer.Serialize(new
+                    {
+                        text = noteTemplates[random.Next(noteTemplates.Length)],
+                        authorEmail = "agent@local.test"
+                    }),
+                    CreatedAt = lead.CreatedAt.AddHours(random.Next(4, 48))
+                });
+            }
+
+            if (!activityTypes.Contains("Scored") && i % 3 == 0)
+            {
+                var (score, reasons) = BuildScore(lead, lead.MetadataJson);
+                var oldScore = Math.Max(0, score - random.Next(5, 25));
+                newActivities.Add(new LeadActivity
+                {
+                    Id = Guid.NewGuid(),
+                    LeadId = lead.Id,
+                    Type = "Scored",
+                    Notes = "Seeded scoring run",
+                    DataJson = JsonSerializer.Serialize(new { oldScore, newScore = score, reasons }),
+                    CreatedAt = lead.CreatedAt.AddDays(random.Next(2, 12))
+                });
+            }
+
+            if (!activityTypes.Contains("WebhookSent") && i % 5 == 0)
+            {
+                newActivities.Add(new LeadActivity
+                {
+                    Id = Guid.NewGuid(),
+                    LeadId = lead.Id,
+                    Type = "WebhookSent",
+                    Notes = "Webhook delivered",
+                    DataJson = JsonSerializer.Serialize(new { endpoint = demoWebhookUrl, status = 200 }),
+                    CreatedAt = lead.CreatedAt.AddDays(random.Next(1, 8))
+                });
+            }
+            else if (!activityTypes.Contains("WebhookFailed") && i % 7 == 0)
+            {
+                newActivities.Add(new LeadActivity
+                {
+                    Id = Guid.NewGuid(),
+                    LeadId = lead.Id,
+                    Type = "WebhookFailed",
+                    Notes = "Webhook failed",
+                    DataJson = JsonSerializer.Serialize(new { endpoint = demoWebhookUrl, error = "Timeout" }),
+                    CreatedAt = lead.CreatedAt.AddDays(random.Next(1, 8))
+                });
+            }
+
+            if (!existingEventLeadIds.Contains(lead.Id))
+            {
+                var eventStatus = i % 6 == 0 ? "Failed" : i % 4 == 0 ? "Pending" : "Sent";
+                var attempts = eventStatus == "Failed" ? random.Next(2, 5) : eventStatus == "Sent" ? 1 : 0;
+                var lastError = eventStatus == "Failed" ? "HTTP 500 from target" : null;
+                var baseEventTime = lead.CreatedAt.AddHours(random.Next(2, 36));
+
+                newAutomationEvents.Add(BuildAutomationEvent(lead, "LeadCreated", eventStatus, attempts, lastError, baseEventTime));
+
+                if (i % 3 == 0)
+                {
+                    newAutomationEvents.Add(BuildAutomationEvent(
+                        lead,
+                        "LeadScored",
+                        eventStatus == "Sent" ? "Sent" : "Pending",
+                        eventStatus == "Sent" ? 1 : attempts,
+                        eventStatus == "Failed" ? lastError : null,
+                        baseEventTime.AddHours(6)));
+                }
+
+                if (i % 2 == 0)
+                {
+                    newAutomationEvents.Add(BuildAutomationEvent(
+                        lead,
+                        "StatusChanged",
+                        eventStatus,
+                        attempts,
+                        lastError,
+                        baseEventTime.AddHours(3)));
+                }
+            }
+
+            if (leadUpdated)
+            {
+                lead.UpdatedAt = DateTime.UtcNow;
+                hasLeadUpdates = true;
             }
         }
 
         if (newActivities.Count > 0)
         {
             dbContext.LeadActivities.AddRange(newActivities);
+            hasLeadUpdates = true;
+        }
+
+        if (newAutomationEvents.Count > 0)
+        {
+            dbContext.AutomationEvents.AddRange(newAutomationEvents);
             hasLeadUpdates = true;
         }
 
@@ -468,65 +753,37 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         return;
     }
 
-    var randomSeed = new Random(42);
-    var statuses = new[] { "New", "Contacted", "Qualified", "Disqualified" };
-    var sources = new[] { "web", "google_ads", "referral", "n8n" };
-    var firstNames = new[] { "Ava", "Mateo", "Priya", "Liam", "Noah", "Sophia", "Maya", "Ethan", "Zoe", "Lucas" };
-    var lastNames = new[] { "Chen", "Silva", "Nair", "Johnson", "Garcia", "Patel", "Kim", "Singh", "Brown", "Nguyen" };
-    var messages = new[]
-    {
-        "Interested in a demo next week.",
-        "Looking to compare pricing tiers.",
-        "Asked about onboarding timeline.",
-        "Needs approval from leadership.",
-        "Wants to automate follow-ups.",
-        "Requesting a pricing quote and estimate.",
-        "Can we schedule an appointment ASAP?",
-        "Looking to book a demo and discuss pricing.",
-        "We offer backlinks and SEO services.",
-        "Guest post opportunities to rank your site.",
-        "Casino backlinks campaign inquiry."
-    };
-
-    var tagSets = new[]
-    {
-        new[] { "inbound", "priority" },
-        new[] { "enterprise" },
-        new[] { "trial", "smb" },
-        new[] { "partner" }
-    };
-
     var leads = new List<Lead>();
     var activities = new List<LeadActivity>();
+    var automationEvents = new List<AutomationEvent>();
     var now = DateTime.UtcNow;
 
-    for (var i = 0; i < 32; i++)
+    for (var i = 0; i < 36; i++)
     {
         var firstName = firstNames[i % firstNames.Length];
         var lastName = lastNames[(i + 3) % lastNames.Length];
-        var createdAt = now.AddDays(-randomSeed.Next(0, 30)).AddMinutes(-randomSeed.Next(0, 1440));
-        var updatedAt = createdAt.AddHours(randomSeed.Next(1, 72));
+        var company = companies[(i + 2) % companies.Length];
+        var createdAt = now.AddDays(-random.Next(0, 30)).AddMinutes(-random.Next(0, 1440));
+        var updatedAt = createdAt.AddHours(random.Next(1, 72));
         if (updatedAt > now)
         {
             updatedAt = now;
         }
 
-        var source = sources[randomSeed.Next(sources.Length)];
-        var status = statuses[randomSeed.Next(statuses.Length)];
-        var score = randomSeed.Next(0, 101);
-        var tags = tagSets[randomSeed.Next(tagSets.Length)];
-        var scoreReasons = new[]
-        {
-            new { rule = "Form submission", delta = 20 },
-            new { rule = "Email engagement", delta = randomSeed.Next(5, 15) },
-            new { rule = "Company size", delta = randomSeed.Next(10, 25) }
-        };
-        var city = i % 3 == 0 ? localCityNames[randomSeed.Next(localCityNames.Length)] : null;
+        var source = sources[random.Next(sources.Length)];
+        var status = statuses[random.Next(statuses.Length)];
+        var tags = tagSets[random.Next(tagSets.Length)];
+        var city = i % 2 == 0 ? localCityNames[random.Next(localCityNames.Length)] : null;
+        var message = i % 7 == 0
+            ? spamMessages[random.Next(spamMessages.Length)]
+            : i % 3 == 0
+                ? highIntentMessages[random.Next(highIntentMessages.Length)]
+                : inquiryMessages[random.Next(inquiryMessages.Length)];
         var metadata = new Dictionary<string, object?>
         {
             ["utm_source"] = source,
-            ["campaign"] = $"launch-{randomSeed.Next(1, 4)}",
-            ["region"] = "NA"
+            ["utm_campaign"] = utmCampaigns[random.Next(utmCampaigns.Length)],
+            ["landingPage"] = landingPages[random.Next(landingPages.Length)]
         };
 
         if (!string.IsNullOrWhiteSpace(city))
@@ -534,24 +791,27 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
             metadata["city"] = city;
         }
 
+        var email = $"{firstName.ToLowerInvariant()}.{lastName.ToLowerInvariant()}@example.com";
         var lead = new Lead
         {
             Id = Guid.NewGuid(),
             FirstName = firstName,
             LastName = lastName,
-            Email = $"{firstName.ToLowerInvariant()}.{lastName.ToLowerInvariant()}@example.com",
-            Phone = $"+1-555-01{randomSeed.Next(10, 99)}",
-            Company = $"{lastName} & Co",
+            Email = email,
+            Phone = $"+1 (951) 555-{random.Next(1000, 9999)}",
+            Company = company,
             Source = source,
             Status = status,
-            Score = score,
-            Message = messages[randomSeed.Next(messages.Length)],
+            Message = message,
             TagsJson = JsonSerializer.Serialize(tags),
             MetadataJson = JsonSerializer.Serialize(metadata),
-            ScoreReasonsJson = JsonSerializer.Serialize(scoreReasons),
             CreatedAt = createdAt,
             UpdatedAt = updatedAt
         };
+
+        var (score, reasons) = BuildScore(lead, lead.MetadataJson);
+        lead.Score = score;
+        lead.ScoreReasonsJson = JsonSerializer.Serialize(reasons);
 
         leads.Add(lead);
 
@@ -565,7 +825,7 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
             CreatedAt = createdAt
         });
 
-        if (i % 3 == 0)
+        if (i % 2 == 0)
         {
             activities.Add(new LeadActivity
             {
@@ -574,36 +834,99 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
                 Type = "StatusChanged",
                 Notes = "Seeded activity",
                 DataJson = JsonSerializer.Serialize(new { from = "New", to = status }),
-                CreatedAt = createdAt.AddDays(randomSeed.Next(1, 10))
+                CreatedAt = createdAt.AddDays(random.Next(1, 10))
             });
         }
-        else if (i % 4 == 0)
+
+        if (i % 4 == 0)
+        {
+            activities.Add(new LeadActivity
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "NoteAdded",
+                Notes = "Seeded note",
+                DataJson = JsonSerializer.Serialize(new
+                {
+                    text = noteTemplates[random.Next(noteTemplates.Length)],
+                    authorEmail = "agent@local.test"
+                }),
+                CreatedAt = createdAt.AddHours(random.Next(6, 36))
+            });
+        }
+
+        if (i % 3 == 0)
+        {
+            var oldScore = Math.Max(0, score - random.Next(5, 25));
+            activities.Add(new LeadActivity
+            {
+                Id = Guid.NewGuid(),
+                LeadId = lead.Id,
+                Type = "Scored",
+                Notes = "Seeded scoring run",
+                DataJson = JsonSerializer.Serialize(new { oldScore, newScore = score, reasons }),
+                CreatedAt = createdAt.AddDays(random.Next(2, 12))
+            });
+        }
+
+        if (i % 5 == 0)
         {
             activities.Add(new LeadActivity
             {
                 Id = Guid.NewGuid(),
                 LeadId = lead.Id,
                 Type = "WebhookSent",
-                Notes = "Seeded activity",
-                DataJson = JsonSerializer.Serialize(new { endpoint = "https://hooks.example.com/lead", status = 200 }),
-                CreatedAt = createdAt.AddDays(randomSeed.Next(1, 10))
+                Notes = "Webhook delivered",
+                DataJson = JsonSerializer.Serialize(new { endpoint = demoWebhookUrl, status = 200 }),
+                CreatedAt = createdAt.AddDays(random.Next(1, 10))
             });
         }
-        else if (i % 5 == 0)
+        else if (i % 6 == 0)
         {
             activities.Add(new LeadActivity
             {
                 Id = Guid.NewGuid(),
                 LeadId = lead.Id,
                 Type = "WebhookFailed",
-                Notes = "Seeded activity",
-                DataJson = JsonSerializer.Serialize(new { endpoint = "https://hooks.example.com/lead", error = "Timeout" }),
-                CreatedAt = createdAt.AddDays(randomSeed.Next(1, 10))
+                Notes = "Webhook failed",
+                DataJson = JsonSerializer.Serialize(new { endpoint = demoWebhookUrl, error = "Timeout" }),
+                CreatedAt = createdAt.AddDays(random.Next(1, 10))
             });
+        }
+
+        var eventStatus = i % 6 == 0 ? "Failed" : i % 4 == 0 ? "Pending" : "Sent";
+        var attempts = eventStatus == "Failed" ? random.Next(2, 5) : eventStatus == "Sent" ? 1 : 0;
+        var lastError = eventStatus == "Failed" ? "HTTP 500 from target" : null;
+        var baseEventTime = createdAt.AddHours(random.Next(2, 36));
+
+        automationEvents.Add(BuildAutomationEvent(lead, "LeadCreated", eventStatus, attempts, lastError, baseEventTime));
+
+        if (i % 3 == 0)
+        {
+            automationEvents.Add(BuildAutomationEvent(
+                lead,
+                "LeadScored",
+                eventStatus == "Sent" ? "Sent" : "Pending",
+                eventStatus == "Sent" ? 1 : attempts,
+                eventStatus == "Failed" ? lastError : null,
+                baseEventTime.AddHours(6)));
+        }
+
+        if (i % 2 == 0)
+        {
+            automationEvents.Add(BuildAutomationEvent(
+                lead,
+                "StatusChanged",
+                eventStatus,
+                attempts,
+                lastError,
+                baseEventTime.AddHours(3)));
         }
     }
 
     dbContext.Leads.AddRange(leads);
     dbContext.LeadActivities.AddRange(activities);
+    dbContext.AutomationEvents.AddRange(automationEvents);
     await dbContext.SaveChangesAsync();
 }
+
