@@ -8,11 +8,13 @@ using AureliLeads.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Npgsql;
 using System.Text.Json;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -77,8 +79,7 @@ builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IScoringService, ScoringService>();
 builder.Services.AddScoped<IAutomationService, AutomationService>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
-builder.Services.AddHttpClient()
-    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient(string.Empty, client => client.Timeout = TimeSpan.FromSeconds(10));
 
 builder.Services.AddCors(options =>
 {
@@ -231,7 +232,40 @@ static async Task ApplyMigrationsAsync(IServiceProvider services)
 {
     await using var scope = services.CreateAsyncScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AureliLeadsDbContext>();
-    await dbContext.Database.MigrateAsync();
+    var hasMigrations = dbContext.Database.GetMigrations().Any();
+    if (hasMigrations)
+    {
+        await dbContext.Database.MigrateAsync();
+        return;
+    }
+
+    // No EF migrations were added yet. EnsureCreated handles schema bootstrap for dev/demo mode.
+    if (!await TableExistsAsync(dbContext, "Users"))
+    {
+        await dbContext.Database.ExecuteSqlRawAsync("""DROP TABLE IF EXISTS "__EFMigrationsHistory";""");
+        await dbContext.Database.EnsureCreatedAsync();
+    }
+}
+
+static async Task<bool> TableExistsAsync(AureliLeadsDbContext dbContext, string tableName)
+{
+    var connection = (NpgsqlConnection)dbContext.Database.GetDbConnection();
+    if (connection.State != System.Data.ConnectionState.Open)
+    {
+        await connection.OpenAsync();
+    }
+
+    await using var command = connection.CreateCommand();
+    command.CommandText = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = @tableName
+        );
+        """;
+    command.Parameters.AddWithValue("tableName", tableName);
+    var result = await command.ExecuteScalarAsync();
+    return result is bool exists && exists;
 }
 
 static async Task SeedDemoUsersAsync(IServiceProvider services)
@@ -441,8 +475,8 @@ static async Task SeedSampleLeadsAsync(IServiceProvider services)
         string? lastError,
         DateTime createdAt)
     {
-        var lastAttemptAt = status == "Pending" ? null : createdAt.AddMinutes(5);
-        var processedAt = status is "Sent" or "Failed" ? createdAt.AddMinutes(5) : null;
+        DateTime? lastAttemptAt = status == "Pending" ? null : createdAt.AddMinutes(5);
+        DateTime? processedAt = status is "Sent" or "Failed" ? createdAt.AddMinutes(5) : null;
         var payload = JsonSerializer.Serialize(new
         {
             eventType,

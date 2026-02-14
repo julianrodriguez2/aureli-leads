@@ -3,9 +3,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AureliLeads.Api.Data.DbContext;
 
-public sealed class AureliLeadsDbContext : DbContext
+public sealed class AureliLeadsDbContext : global::Microsoft.EntityFrameworkCore.DbContext
 {
-    public AureliLeadsDbContext(DbContextOptions<AureliLeadsDbContext> options) : base(options)
+    public AureliLeadsDbContext(global::Microsoft.EntityFrameworkCore.DbContextOptions<AureliLeadsDbContext> options) : base(options)
     {
     }
 
